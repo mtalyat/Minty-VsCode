@@ -1,0 +1,106 @@
+{
+    "tokenColors": [
+        {
+            "scope": "constant.numeric.binary.minty",
+            "settings": {
+                "foreground": "#B5CEA8"
+            }
+        },
+        {
+            "scope": "constant.numeric.hexadecimal.minty",
+            "settings": {
+                "foreground": "#B5CEA8"
+            }
+        },
+        {
+            "scope": "constant.numeric.decimal.minty",
+            "settings": {
+                "foreground": "#B5CEA8"
+            }
+        },
+        {
+            "scope": "constant.numeric.integer.minty",
+            "settings": {
+                "foreground": "#B5CEA8"
+            }
+        },
+        {
+            "scope": "constant.other.uuid.minty",
+            "settings": {
+                "foreground": "#d99cff"
+            }
+        },
+        {
+            "scope": "support.type.property-name.minty",
+            "settings": {
+                "foreground": "#9CDCFE"
+            }
+        },
+        {
+            "scope": "string.quoted.double.minty",
+            "settings": {
+                "foreground": "#CE9178"
+            }
+        },
+        {
+            "scope": "string.quoted.single.minty",
+            "settings": {
+                "foreground": "#CE9178"
+            }
+        },
+        {
+            "scope": "string.path.unquoted.minty",
+            "settings": {
+                "foreground": "#CE9178"
+            }
+        },
+        {
+            "scope": "comment.line.minty",
+            "settings": {
+                "foreground": "#6A9955"
+            }
+        },
+        {
+            "scope": "comment.block.minty",
+            "settings": {
+                "foreground": "#6A9955"
+            }
+        },
+        {
+            "scope": "entity.name.function.preprocessor.minty",
+            "settings": {
+                "foreground": "#DCDCAA"
+            }
+        },
+        {
+            "scope": "entity.name.function.preprocessor.call.minty",
+            "settings": {
+                "foreground": "#DCDCAA"
+            }
+        },
+        {
+            "scope": "constant.other.preprocessor.minty",
+            "settings": {
+                "foreground": "#DCDCAA"
+            }
+        },
+        {
+            "scope": "meta.definition.macro.minty",
+            "settings": {
+                "foreground": "#C586C0"
+            }
+        },
+        {
+            "scope": "constant.language.keyword.minty",
+            "settings": {
+                "foreground": "#569CD6"
+            }
+        },
+        {
+            "scope": "constant.language.constant.minty",
+            "settings": {
+                "foreground": "#4FC1FF"
+            }
+        }
+    ]
+}

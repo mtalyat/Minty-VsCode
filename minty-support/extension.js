@@ -1,0 +1,266 @@
+// The module 'vscode' contains the VS Code extensibility API
+// Import the module and reference it with the alias vscode in your code below
+const vscode = require('vscode');
+const fs = require('fs').promises;
+const path = require('path');
+
+const pathRegex = /(([\w\.\-]+\/)+[\w\.\-]*)/g;
+const uuidRegex = /\b[a-fA-F0-9]{16}\b/g;
+
+function generateUUID() {
+	return [...Array(16)].map(() => Math.floor(Math.random() * 16).toString(16).toUpperCase()).join('');
+}
+
+function openURL(path) {
+	const url = vscode.Uri.file(path);
+	vscode.env.openExternal(url);
+}
+
+async function getTemplateFiles() {
+	const envPath = process.env.MINTY_PATH;
+
+	if (!envPath) {
+		vscode.window.showErrorMessage('MINTY_PATH environment variable is not set.');
+		return null;
+	}
+
+	const folderUri = vscode.Uri.joinPath(vscode.Uri.file(envPath), 'Data', 'Templates');
+
+	try {
+		const entries = await vscode.workspace.fs.readDirectory(folderUri);
+
+		const files = entries
+			.filter(([name, type]) => type === vscode.FileType.File)
+			.map(([name]) => name);
+
+		return files;
+	} catch (err) {
+		vscode.window.showErrorMessage(`Failed to read Minty templates folder at ${folderUri.toString()}: ${err.message}`);
+		return null;
+	}
+}
+
+// This method is called when your extension is activated
+// Your extension is activated the very first time the command is executed
+
+/**
+ * @param {vscode.ExtensionContext} context
+ */
+function activate(context) {
+	console.log('minty-support now active.');
+
+	const insertUUID = vscode.commands.registerCommand('minty-support.insertUUID', async function () {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			return vscode.window.showErrorMessage('No active editor');
+		}
+
+		// Generate a 16-digit random hexadecimal string
+		const uuid = generateUUID();
+
+		editor.edit(editBuilder => {
+			for (const selection of editor.selections) {
+				editBuilder.insert(selection.active, uuid);
+			}
+		});
+
+		// Copy to clipboard
+		await vscode.env.clipboard.writeText(uuid);
+
+		// Optional: Show confirmation
+		vscode.window.showInformationMessage(`UUID copied to clipboard: ${uuid}`);
+	});
+	context.subscriptions.push(insertUUID);
+
+	const generateUUIDDisposable = vscode.commands.registerCommand('minty-support.generateUUID', async function () {
+		// Generate a 16-digit random hexadecimal string (uppercase)
+		const uuid = generateUUID();
+
+		// Copy to clipboard
+		await vscode.env.clipboard.writeText(uuid);
+
+		// Optional: Show confirmation
+		vscode.window.showInformationMessage(`UUID copied to clipboard: ${uuid}`);
+	});
+	context.subscriptions.push(generateUUIDDisposable);
+
+	const openWebsite = vscode.commands.registerCommand('minty-support.openMintyDocs', () => {
+		openURL('https://github.com/mtalyat/Minty/wiki');
+	});
+	context.subscriptions.push(openWebsite);
+
+	const openRepo = vscode.commands.registerCommand('minty-support.openMintyRepo', () => {
+		openURL('https://github.com/mtalyat/Minty');
+	});
+	context.subscriptions.push(openRepo);
+
+	const createFile = vscode.commands.registerCommand('minty-support.createMintyFile', async (uri) => {
+		// 'uri' is the file/folder you right-clicked on in Explorer
+
+		let folderUri;
+
+		// If right-clicked a folder, use it directly
+		if ((await vscode.workspace.fs.stat(uri)).type === vscode.FileType.Directory) {
+			folderUri = uri;
+		} else {
+			// If right-clicked a file, use its parent folder
+			folderUri = uri.with({ path: path.dirname(uri.path) });
+		}
+
+		// get list of template files
+		const templateFiles = await getTemplateFiles();
+		if (!templateFiles || templateFiles.length === 0) {
+			vscode.window.showErrorMessage('No Minty template files found.');
+			return;
+		}
+
+		// remove '.meta' from template file names
+		const templateFileNames = templateFiles.map(file => file.replace(/\.meta$/, ''));
+
+		// Show quick pick to select template
+		const selectedTemplate = await vscode.window.showQuickPick(templateFileNames, {
+			placeHolder: 'Select a Minty template file to use',
+			canPickMany: false
+		});
+		if (!selectedTemplate) return;
+
+		// get template file path
+		const templateFilePath = vscode.Uri.joinPath(
+			vscode.Uri.file(process.env.MINTY_PATH),
+			'Data',
+			'Templates',
+			selectedTemplate
+		);
+
+		// Read the template file
+		let fileData;
+		try {
+			fileData = await vscode.workspace.fs.readFile(templateFilePath);
+			fileData = fileData.toString();
+		} catch (err) {
+			vscode.window.showErrorMessage(`Failed to read template file: ${err.message}`);
+			return;
+		}
+
+		// Show name
+		const fileName = await vscode.window.showInputBox({
+			prompt: 'Enter new .minty file name (without extension)',
+			placeHolder: 'example'
+		});
+		if (!fileName) return;
+
+		// get file path
+		const filePath = vscode.Uri.joinPath(folderUri, `${fileName}${selectedTemplate}`);
+
+		// get .meta file path
+		const metaPath = `${filePath.path.toString()}.meta`;
+
+		// create the .meta file content
+		const uuid = generateUUID();
+		const metaContent = `: ${uuid}
+`;
+
+		// write the .meta file
+		try {
+			await vscode.workspace.fs.writeFile(vscode.Uri.file(metaPath), Buffer.from(metaContent, 'utf8'));
+		}
+		catch (err) {
+			vscode.window.showErrorMessage(`Failed to create .meta file: ${err.message}`);
+		}
+
+		// create the new file with template content
+		try {
+			await vscode.workspace.fs.writeFile(filePath, Buffer.from(fileData, 'utf8'));
+			const doc = await vscode.workspace.openTextDocument(filePath);
+			await vscode.window.showTextDocument(doc);
+		} catch (err) {
+			vscode.window.showErrorMessage(`Failed to create file: ${err.message}`);
+		}
+	});
+	context.subscriptions.push(createFile);
+
+	const provider = vscode.languages.registerDocumentLinkProvider('minty', {
+		async provideDocumentLinks(document, token) {
+			const links = [];
+
+			// Get all meta files once (cache if performance needed)
+			const metaFiles = await vscode.workspace.findFiles('**/*.meta');
+
+			for (let lineNum = 0; lineNum < document.lineCount; lineNum++) {
+				const line = document.lineAt(lineNum);
+				const lineText = line.text;
+
+				// --- UUID links ---
+				let match;
+				while ((match = uuidRegex.exec(lineText)) !== null) {
+					const uuid = match[0];
+					const start = match.index;
+					const end = start + uuid.length;
+
+					const range = new vscode.Range(
+						new vscode.Position(lineNum, start),
+						new vscode.Position(lineNum, end)
+					);
+
+					// Search meta files for this UUID
+					let foundUri = null;
+
+					for (const metaFileUri of metaFiles) {
+						try {
+							const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
+							if (content.includes(`: ${uuid}`)) {
+								foundUri = metaFileUri;
+								break;
+							}
+						} catch (e) {
+							console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
+						}
+					}
+
+					if (foundUri) {
+						// Remove `.meta` from the end of the path
+						const baseFilePath = foundUri.fsPath.replace(/\.meta$/, '');
+						const baseFileUri = vscode.Uri.file(baseFilePath);
+
+						links.push(new vscode.DocumentLink(range, baseFileUri));
+					}
+				}
+
+				// --- Path links ---
+				while ((match = pathRegex.exec(lineText)) !== null) {
+					const pathMatch = match[0];
+					const start = match.index;
+					const end = start + pathMatch.length;
+
+					const range = new vscode.Range(
+						new vscode.Position(lineNum, start),
+						new vscode.Position(lineNum, end)
+					);
+
+					const fileName = path.basename(pathMatch);
+					const globPattern = `**/${fileName}`;
+
+					// Search for files matching filename in workspace
+					const foundFiles = await vscode.workspace.findFiles(globPattern);
+
+					if (foundFiles.length > 0) {
+						// Use first found file for link
+						links.push(new vscode.DocumentLink(range, foundFiles[0]));
+					}
+				}
+			}
+
+			return links;
+		}
+	});
+
+	context.subscriptions.push(provider);
+}
+
+// This method is called when your extension is deactivated
+function deactivate() { }
+
+module.exports = {
+	activate,
+	deactivate
+}

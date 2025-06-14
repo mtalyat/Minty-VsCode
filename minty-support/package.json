@@ -1,0 +1,128 @@
+{
+  "name": "minty-support",
+  "displayName": "Minty-Support",
+  "description": "Support for Minty game engine files.",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "publisher": "mtalyat",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "bugs": {
+    "url": ""
+  },
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "minty",
+        "aliases": [
+          "Minty",
+          "minty"
+        ],
+        "extensions": [
+          ".minty",
+          ".meta"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "minty",
+        "scopeName": "source.minty",
+        "path": "./syntaxes/minty.tmLanguage.json"
+      }
+    ],
+    "themes": [
+      {
+        "label": "Minty Default Theme",
+        "uiTheme": "vs-dark",
+        "path": "./themes/minty-default-theme.json"
+      }
+    ],
+    "documentLinkProvider": [
+      {
+        "language": "minty"
+      }
+    ],
+    "commands": [
+      {
+        "command": "minty-support.generateUUID",
+        "title": "Minty: Generate UUID"
+      },
+      {
+        "command": "minty-support.insertUUID",
+        "title": "Minty: Insert UUID"
+      },
+      {
+        "command": "minty-support.openMintyDocs",
+        "title": "Minty: Open Documentation"
+      },
+      {
+        "command": "minty-support.openMintyRepo",
+        "title": "Minty: Open GitHub Repository"
+      },
+      {
+        "command": "minty-support.createMintyFile",
+        "title": "Minty: Create Asset"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "minty-support.generateUUID",
+        "key": "ctrl+alt+u ctrl+alt+u",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "minty-support.insertUUID",
+        "key": "ctrl+alt+u ctrl+alt+i",
+        "when": "editorTextFocus"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "minty-support.submenu",
+        "label": "Minty"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "submenu": "minty-support.submenu",
+          "group": "minty-support",
+          "when": "explorerResourceIsFolder"
+        }
+      ],
+      "minty-support.submenu": [
+        {
+          "command": "minty-support.createMintyFile",
+          "group": "navigation",
+          "when": "explorerResourceIsFolder"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.101.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "eslint": "^9.25.1",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}
