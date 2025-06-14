@@ -1,6 +1,6 @@
 {
   "name": "minty-support",
-  "displayName": "Minty-Support",
+  "displayName": "Minty Support",
   "description": "Support for Minty game engine files.",
   "version": "1.0.0",
   "engines": {
@@ -9,15 +9,21 @@
   "publisher": "mtalyat",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/mtalyat/Minty-VsCode"
   },
   "bugs": {
-    "url": ""
+    "url": "https://github.com/mtalyat/Minty-VsCode/issues"
   },
   "license": "MIT",
   "icon": "images/icon.png",
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "Minty",
+    "game engine",
+    "game development",
+    "vscode extension"
   ],
   "activationEvents": [],
   "main": "./extension.js",
