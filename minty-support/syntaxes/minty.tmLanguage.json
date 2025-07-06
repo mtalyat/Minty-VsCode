@@ -16,6 +16,9 @@
         },
         {
             "include": "#comment"
+        },
+        {
+            "include": "#variables"
         }
     ],
     "repository": {
@@ -136,6 +139,14 @@
                 {
                     "match": "[-,:]",
                     "name": "punctuation.separator.minty"
+                }
+            ]
+        },
+        "variables": {
+            "patterns": [
+                {
+                    "match": "\\b[A-Z][A-Z_]*\\b",
+                    "name": "entity.constant.minty"
                 }
             ]
         }

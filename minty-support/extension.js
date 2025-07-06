@@ -16,6 +16,15 @@ function openURL(path) {
 	vscode.env.openExternal(url);
 }
 
+/**
+ * @param {string|vscode.Uri} uri
+ */
+function openDirectory(uri) {
+	// If uri is a string, convert to vscode.Uri
+	const folderUri = typeof uri === 'string' ? vscode.Uri.file(uri) : uri;
+	vscode.commands.executeCommand('vscode.openFolder', folderUri, { forceNewWindow: true });
+}
+
 async function getTemplateFiles() {
 	const envPath = process.env.MINTY_PATH;
 
@@ -93,6 +102,15 @@ function activate(context) {
 		openURL('https://github.com/mtalyat/Minty');
 	});
 	context.subscriptions.push(openRepo);
+
+	const openDir = vscode.commands.registerCommand('minty-support.openMintyDirectory', () => {
+		const mintyPath = process.env.MINTY_PATH;
+		if (!mintyPath) {
+			return vscode.window.showErrorMessage('MINTY_PATH environment variable is not set.');
+		}
+		openDirectory(mintyPath);
+	});
+	context.subscriptions.push(openDir);
 
 	const createFile = vscode.commands.registerCommand('minty-support.createMintyFile', async (uri) => {
 		// 'uri' is the file/folder you right-clicked on in Explorer
@@ -183,8 +201,83 @@ function activate(context) {
 		async provideDocumentLinks(document, token) {
 			const links = [];
 
-			// Get all meta files once (cache if performance needed)
-			const metaFiles = await vscode.workspace.findFiles('**/*.meta');
+			// Get all meta files in workspace and in $(MINTY_PATH)/Data/
+			const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
+
+			let mintyMetaFiles = [];
+			const mintyPath = process.env.MINTY_PATH;
+			if (mintyPath) {
+				const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
+				try {
+					const mintyDataMetaFiles = await vscode.workspace.findFiles(
+						new vscode.RelativePattern(mintyDataUri, '**/*.meta')
+					);
+					mintyMetaFiles = mintyDataMetaFiles;
+				} catch (e) {
+					console.error('Error searching for meta files in MINTY_PATH/Data:', e);
+				}
+			}
+
+			const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
+
+			// Build a map: UUID -> file path
+			const uuidToFileMap = {};
+			for (const metaFileUri of metaFiles) {
+				try {
+					const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
+					const match = content.match(/: ([a-fA-F0-9]{16})/);
+					if (match) {
+						const uuid = match[1];
+						const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
+						uuidToFileMap[uuid] = filePath;
+					}
+				} catch (e) {
+					console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
+				}
+			}
+
+			const workspaceFiles = await vscode.workspace.findFiles('**/*', '{**/*.meta,**/.*,**/.*/**}');
+			let mintyFiles = [];
+			if (mintyPath) {
+				const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
+				try {
+					const mintyDataFiles = await vscode.workspace.findFiles(
+						new vscode.RelativePattern(mintyDataUri, '**/*'),
+						'**/*.meta'
+					);
+					mintyFiles = mintyDataFiles;
+				} catch (e) {
+					console.error('Error searching for files in MINTY_PATH/Data:', e);
+				}
+			}
+			
+			// console.log(`UUID map: ${JSON.stringify(uuidToFileMap, null, 2)}`);
+
+			const fileMap = {};
+
+			// Map workspace files: key = relative to workspace root (with forward slashes), value = full path
+			const workspaceFolders = vscode.workspace.workspaceFolders || [];
+			let workspaceRoot = workspaceFolders.length > 0 ? workspaceFolders[0].uri.fsPath : '';
+			for (const file of workspaceFiles) {
+				let relPath = workspaceRoot && file.fsPath.startsWith(workspaceRoot)
+					? path.relative(workspaceRoot, file.fsPath)
+					: file.fsPath;
+				relPath = relPath.replace(/\\/g, '/'); // normalize to forward slashes
+				fileMap[relPath] = file.fsPath;
+			}
+
+			// Map minty files: key = relative to Data dir (with forward slashes), value = full path
+			if (mintyPath) {
+				const dataDir = path.join(mintyPath, 'Data');
+				for (const file of mintyFiles) {
+					// Always calculate the relative path from the Data directory
+					let relPath = path.relative(dataDir, file.fsPath);
+					relPath = relPath.replace(/\\/g, '/'); // normalize to forward slashes
+					fileMap[relPath] = file.fsPath;
+				}
+			}
+
+			console.log(`File map: ${JSON.stringify(fileMap, null, 2)}`);
 
 			for (let lineNum = 0; lineNum < document.lineCount; lineNum++) {
 				const line = document.lineAt(lineNum);
@@ -193,6 +286,7 @@ function activate(context) {
 				// --- UUID links ---
 				let match;
 				while ((match = uuidRegex.exec(lineText)) !== null) {
+					console.log('uuid')
 					const uuid = match[0];
 					const start = match.index;
 					const end = start + uuid.length;
@@ -203,31 +297,18 @@ function activate(context) {
 					);
 
 					// Search meta files for this UUID
-					let foundUri = null;
+					if(uuidToFileMap[uuid]) {
+						const foundUri = vscode.Uri.file(uuidToFileMap[uuid]);
 
-					for (const metaFileUri of metaFiles) {
-						try {
-							const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-							if (content.includes(`: ${uuid}`)) {
-								foundUri = metaFileUri;
-								break;
-							}
-						} catch (e) {
-							console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
-						}
-					}
-
-					if (foundUri) {
-						// Remove `.meta` from the end of the path
-						const baseFilePath = foundUri.fsPath.replace(/\.meta$/, '');
-						const baseFileUri = vscode.Uri.file(baseFilePath);
-
+						// remove '.meta' from the file path
+						const baseFileUri = foundUri.with({ path: foundUri.path.replace(/\.meta$/, '') });
 						links.push(new vscode.DocumentLink(range, baseFileUri));
 					}
 				}
 
 				// --- Path links ---
 				while ((match = pathRegex.exec(lineText)) !== null) {
+					console.log('path')
 					const pathMatch = match[0];
 					const start = match.index;
 					const end = start + pathMatch.length;
@@ -237,19 +318,24 @@ function activate(context) {
 						new vscode.Position(lineNum, end)
 					);
 
-					const fileName = path.basename(pathMatch);
-					const globPattern = `**/${fileName}`;
+					console.log(`Found path match: ${pathMatch}`);
 
-					// Search for files matching filename in workspace
-					const foundFiles = await vscode.workspace.findFiles(globPattern);
+					// Always use forward slashes for lookup
+					const normalizedPath = pathMatch.replace(/\\/g, '/');
 
-					if (foundFiles.length > 0) {
-						// Use first found file for link
-						links.push(new vscode.DocumentLink(range, foundFiles[0]));
+					// check if normalizedPath is within files set
+					if (fileMap[normalizedPath]) {
+						console.log(`Found file: ${normalizedPath}`);
+						// If normalizedPath is in the files set, create a link
+						const fileUri = vscode.Uri.file(fileMap[normalizedPath]);
+						links.push(new vscode.DocumentLink(range, fileUri));
+					} else {
+						console.log(`File not found in fileMap: ${normalizedPath}`);
 					}
 				}
 			}
 
+			console.log(`Document link provider found ${links.length} links.`);
 			return links;
 		}
 	});

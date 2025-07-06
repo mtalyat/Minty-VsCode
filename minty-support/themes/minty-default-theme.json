@@ -150,7 +150,7 @@
 			"scope": "entity",
 			"settings": {
 				"fontStyle": "",
-				"foreground": "#59ffe3"
+				"foreground": "#46e8cd"
 			}
 		},
 		{
@@ -158,7 +158,7 @@
 			"scope": "storage",
 			"settings": {
 				"fontStyle": "bold",
-				"foreground": "#3098e3"
+				"foreground": "#3bc2f7"
 			}
 		},
 		{
@@ -174,7 +174,7 @@
 			"scope": "support",
 			"settings": {
 				"fontStyle": "",
-				"foreground": "#0760de"
+				"foreground": "#3098e3"
 			}
 		},
 		{
