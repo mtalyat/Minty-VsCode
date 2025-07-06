@@ -23,6 +23,10 @@ None.
 
 ## Release Notes
 
+### 1.0.3
+
+- Adjust blue colors to be lighter.
+
 ### 1.0.2
 
 - Fix single character name coloring in .minty files.
@@ -31,7 +35,3 @@ None.
 
 - Adjust theme to be more green.
 - Add better coloring for .minty files.
-
-### 1.0.0
-
-Initial release.

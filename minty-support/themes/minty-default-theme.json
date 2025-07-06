@@ -67,21 +67,21 @@
 			"scope": "support.element.0",
 			"settings": {
 				"fontStyle": "bold",
-				"foreground": "#0760de"
+				"foreground": "#3098e3"
 			}
 		},
 		{
 			"scope": "storage.element.1.minty",
 			"settings": {
 				"fontStyle": "",
-				"foreground": "#3098e3"
+				"foreground": "#3bc2f7"
 			}
 		},
 		{
 			"scope": "entity.element.2.minty",
 			"settings": {
 				"fontStyle": "",
-				"foreground": "#59ffe3"
+				"foreground": "#46e8cd"
 			}
 		},
 		{

@@ -1,5 +1,9 @@
 # Change Log
 
+### 1.0.3
+
+- Adjust blue colors to be lighter.
+
 ## 1.0.2
 
 - Fix single character name coloring in .minty files.
