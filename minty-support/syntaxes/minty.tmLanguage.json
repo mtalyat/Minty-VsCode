@@ -63,30 +63,30 @@
                 },
                 {
                     "name": "constant.other.preprocessor.minty",
-                    "match": "\\b[A-Z_][A-Z0-9_]*\\b"
+                    "match": "\\b[A-Z_][A-Z0-9_]*\\b(?=\\s)"
                 }
             ]
         },
         "key": {
             "patterns": [
                 {
-                    "match": "^\\w[\\w ]+",
+                    "match": "^\\w[\\w ]*",
                     "name": "support.element.0.minty"
                 },
                 {
-                    "match": "^(?:\\t|\\s{4})\\w[\\w ]+",
+                    "match": "^(?:\\t|\\s{4})\\w[\\w ]*",
                     "name": "storage.element.1.minty"
                 },
                 {
-                    "match": "^(?:\\t|\\s{4}){2}\\w[\\w ]+",
+                    "match": "^(?:\\t|\\s{4}){2}\\w[\\w ]*",
                     "name": "entity.element.2.minty"
                 },
                 {
-                    "match": "^(?:\\t|\\s{4}){3}\\w[\\w ]+",
+                    "match": "^(?:\\t|\\s{4}){3}\\w[\\w ]*",
                     "name": "variable.element.3.minty"
                 },
                 {
-                    "match": "^(?:\\t|\\s{4}){4,}\\w[\\w ]+",
+                    "match": "^(?:\\t|\\s{4}){4,}\\w[\\w ]*",
                     "name": "keyword.element.4.minty"
                 }
             ]
