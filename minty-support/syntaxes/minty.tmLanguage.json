@@ -55,7 +55,7 @@
                             "match": "\\)"
                         }
                     ],
-                    "name": "meta.definition.macro.minty"
+                    "name": "keyword.control.directive.define.minty"
                 },
                 {
                     "name": "entity.name.function.preprocessor.call.minty",
@@ -70,8 +70,24 @@
         "key": {
             "patterns": [
                 {
-                    "match": "^\\s*[\\w ]+",
-                    "name": "support.type.property-name.minty"
+                    "match": "^\\w[\\w ]+",
+                    "name": "support.element.0.minty"
+                },
+                {
+                    "match": "^(?:\\t|\\s{4})\\w[\\w ]+",
+                    "name": "storage.element.1.minty"
+                },
+                {
+                    "match": "^(?:\\t|\\s{4}){2}\\w[\\w ]+",
+                    "name": "entity.element.2.minty"
+                },
+                {
+                    "match": "^(?:\\t|\\s{4}){3}\\w[\\w ]+",
+                    "name": "variable.element.3.minty"
+                },
+                {
+                    "match": "^(?:\\t|\\s{4}){4,}\\w[\\w ]+",
+                    "name": "keyword.element.4.minty"
                 }
             ]
         },
