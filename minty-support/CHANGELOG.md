@@ -1,5 +1,15 @@
 # Change Log
 
+## 1.2.0
+
+- Improve template generation. Now uses names instead of extensions to increase ease of use.
+- Add findAssetUUID command, which allows you to search for an asset via its name or UUID, and copy its UUID without having to open the file.
+- Add findAssetPath command, which allows you to search for an asset via its name or UUID, and copy its path without having to open the file.
+
+## 1.1.1
+
+- Fix key-value name coloring, if the name was a number.
+
 ## 1.1.0
 
 - Fix blue colors for non-.minty files.

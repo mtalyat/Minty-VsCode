@@ -33,18 +33,38 @@ async function getTemplateFiles() {
 		return null;
 	}
 
+	const metaFileUri = vscode.Uri.joinPath(vscode.Uri.file(envPath), 'Data', 'Templates', '.meta');
+
+	try {
+		const fileData = await vscode.workspace.fs.readFile(metaFileUri);
+		const content = fileData.toString();
+
+		const files = content
+			.split('\n')
+			.filter(line => line.trim() !== '')
+			.map(line => {
+				const [extension, name] = line.split(',').map(col => col.trim());
+				return [extension, name];
+			});
+
+		return files;
+	} catch (err) {
+		vscode.window.showWarningMessage(`Failed to read Minty templates .meta file at ${metaFileUri.toString()}: ${err.message}`);
+	}
+
 	const folderUri = vscode.Uri.joinPath(vscode.Uri.file(envPath), 'Data', 'Templates');
 
+	// If the .meta file doesn't exist, get the raw file names
 	try {
 		const entries = await vscode.workspace.fs.readDirectory(folderUri);
 
 		const files = entries
-			.filter(([name, type]) => type === vscode.FileType.File)
-			.map(([name]) => name);
+			.filter(([name, type]) => type === vscode.FileType.File && !name.endsWith('.meta'))
+			.map(([name]) => [name, name]);
 
 		return files;
 	} catch (err) {
-		vscode.window.showErrorMessage(`Failed to read Minty templates folder at ${folderUri.toString()}: ${err.message}`);
+		vscode.window.showErrorMessage(`Failed to find Minty templates directory at ${folderUri.toString()}: ${err.message}`);
 		return null;
 	}
 }
@@ -132,8 +152,8 @@ function activate(context) {
 			return;
 		}
 
-		// remove '.meta' from template file names
-		const templateFileNames = templateFiles.map(file => file.replace(/\.meta$/, ''));
+		// create a list of just the names from the template files tuples
+		const templateFileNames = templateFiles.map(([extension, name]) => name);
 
 		// Show quick pick to select template
 		const selectedTemplate = await vscode.window.showQuickPick(templateFileNames, {
@@ -142,12 +162,20 @@ function activate(context) {
 		});
 		if (!selectedTemplate) return;
 
+		// find the extension of the selected template
+		const templateFileTuple = templateFiles.find(([extension, name]) => name === selectedTemplate);
+		if (!templateFileTuple) {
+			vscode.window.showErrorMessage(`Template file for "${selectedTemplate}" not found.`);
+			return;
+		}
+		const selectedTemplateExtension = templateFileTuple[0];
+
 		// get template file path
 		const templateFilePath = vscode.Uri.joinPath(
 			vscode.Uri.file(process.env.MINTY_PATH),
 			'Data',
 			'Templates',
-			selectedTemplate
+			selectedTemplateExtension
 		);
 
 		// Read the template file
@@ -168,7 +196,7 @@ function activate(context) {
 		if (!fileName) return;
 
 		// get file path
-		const filePath = vscode.Uri.joinPath(folderUri, `${fileName}${selectedTemplate}`);
+		const filePath = vscode.Uri.joinPath(folderUri, `${fileName}${selectedTemplateExtension}`);
 
 		// get .meta file path
 		const metaPath = `${filePath.path.toString()}.meta`;
@@ -196,6 +224,183 @@ function activate(context) {
 		}
 	});
 	context.subscriptions.push(createFile);
+
+	const findAssetUUID = vscode.commands.registerCommand('minty-support.findAssetUUID', async function () {
+		// Get all meta files in workspace and in $(MINTY_PATH)/Data/
+		const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
+
+		let mintyMetaFiles = [];
+		const mintyPath = process.env.MINTY_PATH;
+		if (mintyPath) {
+			const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
+			try {
+				const mintyDataMetaFiles = await vscode.workspace.findFiles(
+					new vscode.RelativePattern(mintyDataUri, '**/*.meta')
+				);
+				mintyMetaFiles = mintyDataMetaFiles;
+			} catch (e) {
+				console.error('Error searching for meta files in MINTY_PATH/Data:', e);
+			}
+		}
+
+		const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
+
+		if (metaFiles.length === 0) {
+			vscode.window.showInformationMessage('No assets with .meta files found.');
+			return;
+		}
+
+		// Build a list of assets with their UUIDs for the quick pick
+		const assetItems = [];
+		for (const metaFileUri of metaFiles) {
+			try {
+				const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
+				const match = content.match(/: ([a-fA-F0-9]{16})/);
+				if (match) {
+					const uuid = match[1];
+					const assetPath = metaFileUri.fsPath.replace(/\.meta$/, '');
+					
+					// Get relative path for display
+					const workspaceFolders = vscode.workspace.workspaceFolders || [];
+					let displayPath = assetPath;
+					
+					if (workspaceFolders.length > 0) {
+						const workspaceRoot = workspaceFolders[0].uri.fsPath;
+						if (assetPath.startsWith(workspaceRoot)) {
+							displayPath = path.relative(workspaceRoot, assetPath).replace(/\\/g, '/');
+						}
+					}
+					
+					// If it's from MINTY_PATH, show it relative to Data folder
+					if (mintyPath && assetPath.startsWith(path.join(mintyPath, 'Data'))) {
+						const dataDir = path.join(mintyPath, 'Data');
+						displayPath = `[Minty] ${path.relative(dataDir, assetPath).replace(/\\/g, '/')}`;
+					}
+
+					assetItems.push({
+						label: displayPath,
+						description: uuid,
+						uuid: uuid,
+						assetPath: assetPath
+					});
+				}
+			} catch (e) {
+				console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
+			}
+		}
+
+		if (assetItems.length === 0) {
+			vscode.window.showInformationMessage('No valid assets with UUIDs found.');
+			return;
+		}
+
+		// Sort by label for better UX
+		assetItems.sort((a, b) => a.label.localeCompare(b.label));
+
+		// Show quick pick
+		const selectedAsset = await vscode.window.showQuickPick(assetItems, {
+			placeHolder: 'Select an asset to copy its UUID',
+			matchOnDescription: true
+		});
+
+		if (selectedAsset) {
+			// Copy UUID to clipboard
+			await vscode.env.clipboard.writeText(selectedAsset.uuid);
+			vscode.window.showInformationMessage(`UUID copied to clipboard: ${selectedAsset.uuid}`);
+		}
+	});
+	context.subscriptions.push(findAssetUUID);
+
+	const findAssetPath = vscode.commands.registerCommand('minty-support.findAssetPath', async function () {
+		// Get all meta files in workspace and in $(MINTY_PATH)/Data/
+		const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
+
+		let mintyMetaFiles = [];
+		const mintyPath = process.env.MINTY_PATH;
+		if (mintyPath) {
+			const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
+			try {
+				const mintyDataMetaFiles = await vscode.workspace.findFiles(
+					new vscode.RelativePattern(mintyDataUri, '**/*.meta')
+				);
+				mintyMetaFiles = mintyDataMetaFiles;
+			} catch (e) {
+				console.error('Error searching for meta files in MINTY_PATH/Data:', e);
+			}
+		}
+
+		const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
+
+		if (metaFiles.length === 0) {
+			vscode.window.showInformationMessage('No assets with .meta files found.');
+			return;
+		}
+
+		// Build a list of assets with their paths for the quick pick
+		const assetItems = [];
+		for (const metaFileUri of metaFiles) {
+			try {
+				const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
+				const match = content.match(/: ([a-fA-F0-9]{16})/);
+				if (match) {
+					const uuid = match[1];
+					const assetPath = metaFileUri.fsPath.replace(/\.meta$/, '');
+					
+					// Get relative path for display and copying
+					const workspaceFolders = vscode.workspace.workspaceFolders || [];
+					let displayPath = assetPath;
+					let copyPath = assetPath;
+					
+					if (workspaceFolders.length > 0) {
+						const workspaceRoot = workspaceFolders[0].uri.fsPath;
+						if (assetPath.startsWith(workspaceRoot)) {
+							const relativePath = path.relative(workspaceRoot, assetPath).replace(/\\/g, '/');
+							displayPath = relativePath;
+							copyPath = relativePath;
+						}
+					}
+					
+					// If it's from MINTY_PATH, show it relative to Data folder
+					if (mintyPath && assetPath.startsWith(path.join(mintyPath, 'Data'))) {
+						const dataDir = path.join(mintyPath, 'Data');
+						const relativePath = path.relative(dataDir, assetPath).replace(/\\/g, '/');
+						displayPath = `[Minty] ${relativePath}`;
+						copyPath = relativePath;
+					}
+
+					assetItems.push({
+						label: displayPath,
+						description: uuid,
+						uuid: uuid,
+						assetPath: copyPath
+					});
+				}
+			} catch (e) {
+				console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
+			}
+		}
+
+		if (assetItems.length === 0) {
+			vscode.window.showInformationMessage('No valid assets with UUIDs found.');
+			return;
+		}
+
+		// Sort by label for better UX
+		assetItems.sort((a, b) => a.label.localeCompare(b.label));
+
+		// Show quick pick
+		const selectedAsset = await vscode.window.showQuickPick(assetItems, {
+			placeHolder: 'Select an asset to copy its path',
+			matchOnDescription: true
+		});
+
+		if (selectedAsset) {
+			// Copy path to clipboard
+			await vscode.env.clipboard.writeText(selectedAsset.assetPath);
+			vscode.window.showInformationMessage(`Path copied to clipboard: ${selectedAsset.assetPath}`);
+		}
+	});
+	context.subscriptions.push(findAssetPath);
 
 	const provider = vscode.languages.registerDocumentLinkProvider('minty', {
 		async provideDocumentLinks(document, token) {
@@ -250,7 +455,7 @@ function activate(context) {
 					console.error('Error searching for files in MINTY_PATH/Data:', e);
 				}
 			}
-			
+
 			// console.log(`UUID map: ${JSON.stringify(uuidToFileMap, null, 2)}`);
 
 			const fileMap = {};
@@ -297,7 +502,7 @@ function activate(context) {
 					);
 
 					// Search meta files for this UUID
-					if(uuidToFileMap[uuid]) {
+					if (uuidToFileMap[uuid]) {
 						const foundUri = vscode.Uri.file(uuidToFileMap[uuid]);
 
 						// remove '.meta' from the file path

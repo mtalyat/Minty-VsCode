@@ -3,6 +3,9 @@
     "name": "Minty",
     "patterns": [
         {
+            "include": "#macro"
+        },
+        {
             "include": "#key"
         },
         {
@@ -10,9 +13,6 @@
         },
         {
             "include": "#punctuation"
-        },
-        {
-            "include": "#macro"
         },
         {
             "include": "#comment"
@@ -73,23 +73,23 @@
         "key": {
             "patterns": [
                 {
-                    "match": "^\\w[\\w ]*",
+                    "match": "^[^\\s:][^:]*",
                     "name": "support.element.0.minty"
                 },
                 {
-                    "match": "^(?:\\t|\\s{4})\\w[\\w ]*",
+                    "match": "^(?:\\t|\\s{4})[^\\s:][^:]*",
                     "name": "storage.element.1.minty"
                 },
                 {
-                    "match": "^(?:\\t|\\s{4}){2}\\w[\\w ]*",
+                    "match": "^(?:\\t|\\s{4}){2}[^\\s:][^:]*",
                     "name": "entity.element.2.minty"
                 },
                 {
-                    "match": "^(?:\\t|\\s{4}){3}\\w[\\w ]*",
+                    "match": "^(?:\\t|\\s{4}){3}[^\\s:][^:]*",
                     "name": "variable.element.3.minty"
                 },
                 {
-                    "match": "^(?:\\t|\\s{4}){4,}\\w[\\w ]*",
+                    "match": "^(?:\\t|\\s{4}){4,}[^\\s:][^:]*",
                     "name": "keyword.element.4.minty"
                 }
             ]
