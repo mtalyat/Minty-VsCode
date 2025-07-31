@@ -3,6 +3,9 @@
     "name": "Minty",
     "patterns": [
         {
+            "include": "#uuid"
+        },
+        {
             "include": "#macro"
         },
         {
@@ -32,6 +35,14 @@
                     "begin": "#-",
                     "end": "-#",
                     "name": "comment.block.minty"
+                }
+            ]
+        },
+        "uuid": {
+            "patterns": [
+                {
+                    "match": "\\b[a-fA-F0-9]{16}\\b",
+                    "name": "constant.other.uuid.minty"
                 }
             ]
         },
@@ -99,10 +110,6 @@
                 {
                     "match": "\".*?\"",
                     "name": "string.quoted.double.minty"
-                },
-                {
-                    "match": "\\b[a-fA-F0-9]{16}\\b",
-                    "name": "constant.other.uuid.minty"
                 },
                 {
                     "match": "\\b0[bB][01]+\\b",

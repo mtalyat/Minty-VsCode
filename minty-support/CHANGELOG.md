@@ -1,5 +1,9 @@
 # Change Log
 
+## 1.2.1
+
+- Fix UUID syntax highlighting.
+
 ## 1.2.0
 
 - Improve template generation. Now uses names instead of extensions to increase ease of use.
