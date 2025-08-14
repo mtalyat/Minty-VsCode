@@ -23,20 +23,18 @@ None.
 
 ## Release Notes
 
-Check the README for all changes.
+Check CHANGELOG.md for all changes.
 
-### 1.1.0
+### 1.2.2
 
-- Fix blue colors for non-.minty files.
-- Add openMintyDirectory command, which opens the local Minty directory, if any. Found at $(MINTY_PATH).
-- Update document link provider to check files within $(MINTY_PATH)/Data.
-- Add syntax highlighting for macros when used.
+- Fix "- " syntax highlighting.
 
-### 1.0.4
+### 1.2.1
 
-- Fix README to have correct keyboard shortcuts.
-- Rename color theme to "Minty."
+- Fix UUID syntax highlighting.
 
-### 1.0.3
+### 1.2.0
 
-- Adjust blue colors to be lighter.
+- Improve template generation. Now uses names instead of extensions to increase ease of use.
+- Add findAssetUUID command, which allows you to search for an asset via its name or UUID, and copy its UUID without having to open the file.
+- Add findAssetPath command, which allows you to search for an asset via its name or UUID, and copy its path without having to open the file.

@@ -1,5 +1,9 @@
 # Change Log
 
+## 1.2.2
+
+- Fix "- " syntax highlighting.
+
 ## 1.2.1
 
 - Fix UUID syntax highlighting.
