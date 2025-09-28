@@ -225,6 +225,66 @@ function activate(context) {
 	});
 	context.subscriptions.push(createFile);
 
+	const createMetaFile = vscode.commands.registerCommand('minty-support.createMetaFile', async (uri, selectedUris) => {
+		// 'uri' is the primary file right-clicked, 'selectedUris' contains all selected files
+		
+		// Get all selected files - if multiple selection, use selectedUris, otherwise use single uri
+		const filesToProcess = selectedUris && selectedUris.length > 0 ? selectedUris : [uri];
+
+		if (!filesToProcess || filesToProcess.length === 0) {
+			vscode.window.showErrorMessage('No files selected.');
+			return;
+		}
+
+		const createdUuids = [];
+		let errorCount = 0;
+
+		for (const fileUri of filesToProcess) {
+			try {
+				// Ensure it's a file, not a folder
+				const stat = await vscode.workspace.fs.stat(fileUri);
+				if (stat.type === vscode.FileType.Directory) {
+					continue; // Skip folders
+				}
+
+				// Generate UUID for this file
+				const uuid = generateUUID();
+
+				// Create meta file path by adding .meta extension
+				const metaPath = fileUri.with({ path: `${fileUri.path}.meta` });
+
+				// Create meta file content
+				const metaContent = `: ${uuid}\n`;
+
+				// Write the .meta file
+				await vscode.workspace.fs.writeFile(metaPath, Buffer.from(metaContent, 'utf8'));
+				
+				createdUuids.push(uuid);
+			} catch (err) {
+				console.error(`Failed to create meta file for ${fileUri.path}: ${err.message}`);
+				errorCount++;
+			}
+		}
+
+		if (createdUuids.length > 0) {
+			// Copy the last UUID to clipboard (or all UUIDs if multiple)
+			const clipboardContent = createdUuids.length === 1 ? createdUuids[0] : createdUuids.join('\n');
+			await vscode.env.clipboard.writeText(clipboardContent);
+
+			// Show confirmation message
+			const message = createdUuids.length === 1 
+				? `Meta file created with UUID copied to clipboard: ${createdUuids[0]}`
+				: `${createdUuids.length} meta files created. UUIDs copied to clipboard.`;
+			
+			vscode.window.showInformationMessage(message);
+		}
+
+		if (errorCount > 0) {
+			vscode.window.showWarningMessage(`${errorCount} files could not be processed (may be folders or errors occurred).`);
+		}
+	});
+	context.subscriptions.push(createMetaFile);
+
 	const findAssetUUID = vscode.commands.registerCommand('minty-support.findAssetUUID', async function () {
 		// Get all meta files in workspace and in $(MINTY_PATH)/Data/
 		const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');

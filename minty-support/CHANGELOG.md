@@ -1,5 +1,10 @@
 # Change Log
 
+## 1.3
+
+- Add create meta file command.
+- Removed the Minty right click menu folder- commands are now on the main level.
+
 ## 1.2.2
 
 - Fix "- " syntax highlighting.

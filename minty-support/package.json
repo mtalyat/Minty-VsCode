@@ -2,7 +2,7 @@
   "name": "minty-support",
   "displayName": "Minty Support",
   "description": "Support for Minty game engine files.",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "engines": {
     "vscode": "^1.101.0"
   },
@@ -93,6 +93,10 @@
       {
         "command": "minty-support.findAssetPath",
         "title": "Minty: Find Asset Path"
+      },
+      {
+        "command": "minty-support.createMetaFile",
+        "title": "Minty: Create Meta File"
       }
     ],
     "keybindings": [
@@ -115,25 +119,17 @@
         "key": "ctrl+alt+u ctrl+alt+p"
       }
     ],
-    "submenus": [
-      {
-        "id": "minty-support.submenu",
-        "label": "Minty"
-      }
-    ],
     "menus": {
       "explorer/context": [
         {
-          "submenu": "minty-support.submenu",
+          "command": "minty-support.createMintyFile",
           "group": "minty-support",
           "when": "explorerResourceIsFolder"
-        }
-      ],
-      "minty-support.submenu": [
+        },
         {
-          "command": "minty-support.createMintyFile",
-          "group": "navigation",
-          "when": "explorerResourceIsFolder"
+          "command": "minty-support.createMetaFile",
+          "group": "minty-support",
+          "when": "!explorerResourceIsFolder"
         }
       ]
     }
