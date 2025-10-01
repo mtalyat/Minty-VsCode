@@ -2,7 +2,7 @@
   "name": "minty-support",
   "displayName": "Minty Support",
   "description": "Support for Minty game engine files.",
-  "version": "1.3.0",
+  "version": "1.3.2",
   "engines": {
     "vscode": "^1.101.0"
   },
@@ -97,6 +97,10 @@
       {
         "command": "minty-support.createMetaFile",
         "title": "Minty: Create Meta File"
+      },
+      {
+        "command": "minty-support.compileShader",
+        "title": "Minty: Compile Shader"
       }
     ],
     "keybindings": [
@@ -129,7 +133,12 @@
         {
           "command": "minty-support.createMetaFile",
           "group": "minty-support",
-          "when": "!explorerResourceIsFolder"
+          "when": "!explorerResourceIsFolder && (resourceExtname != .meta && resourceExtname != .frag && resourceExtname != .vert && resourceExtname != .glsl)"
+        },
+        {
+          "command": "minty-support.compileShader",
+          "group": "minty-support",
+          "when": "!explorerResourceIsFolder && (resourceExtname == .frag || resourceExtname == .vert || resourceExtname == .glsl)"
         }
       ]
     }

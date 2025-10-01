@@ -1,5 +1,14 @@
 # Change Log
 
+## 1.3.2
+
+- Fix compile shader command. Stops it from creating a terminal each time it is ran.
+
+## 1.3.1
+
+- Add compile shader file command.
+- Adjust create meta file command.
+
 ## 1.3
 
 - Add create meta file command.

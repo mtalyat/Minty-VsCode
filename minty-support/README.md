@@ -24,22 +24,3 @@ None.
 ## Release Notes
 
 Check CHANGELOG.md for all changes.
-
-### 1.3
-
-- Add create meta file command.
-- Removed the Minty right click menu folder- commands are now on the main level.
-
-### 1.2.2
-
-- Fix "- " syntax highlighting.
-
-### 1.2.1
-
-- Fix UUID syntax highlighting.
-
-### 1.2.0
-
-- Improve template generation. Now uses names instead of extensions to increase ease of use.
-- Add findAssetUUID command, which allows you to search for an asset via its name or UUID, and copy its UUID without having to open the file.
-- Add findAssetPath command, which allows you to search for an asset via its name or UUID, and copy its path without having to open the file.

@@ -247,11 +247,25 @@ function activate(context) {
 					continue; // Skip folders
 				}
 
-				// Generate UUID for this file
-				const uuid = generateUUID();
+				// Skip if this is already a .meta file
+				if (fileUri.path.endsWith('.meta')) {
+					continue;
+				}
 
 				// Create meta file path by adding .meta extension
 				const metaPath = fileUri.with({ path: `${fileUri.path}.meta` });
+
+				// Check if meta file already exists
+				try {
+					await vscode.workspace.fs.stat(metaPath);
+					// If we get here, the file exists, so skip it
+					continue;
+				} catch (err) {
+					// File doesn't exist, proceed with creation
+				}
+
+				// Generate UUID for this file
+				const uuid = generateUUID();
 
 				// Create meta file content
 				const metaContent = `: ${uuid}\n`;
@@ -284,6 +298,35 @@ function activate(context) {
 		}
 	});
 	context.subscriptions.push(createMetaFile);
+
+	const compileShader = vscode.commands.registerCommand('minty-support.compileShader', async (uri, selectedUris) => {
+		// 'uri' is the primary file right-clicked, 'selectedUris' contains all selected files
+		
+		// Get all selected files - if multiple selection, use selectedUris, otherwise use single uri
+		const filesToProcess = selectedUris && selectedUris.length > 0 ? selectedUris : [uri];
+
+		if (!filesToProcess || filesToProcess.length === 0) {
+			vscode.window.showErrorMessage('No files selected.');
+			return;
+		}
+		
+		// Find existing terminal with matching name or create a new one
+		const terminalName = 'Minty GLSL Compiler';
+		let terminal = vscode.window.terminals.find(t => t.name === terminalName);
+		
+		if (!terminal) {
+			terminal = vscode.window.createTerminal(terminalName);
+		}
+		
+		for (const fileUri of filesToProcess) {
+			const outputPath = `${fileUri.fsPath}.spv`;
+			
+			// Compile the shader
+			terminal.sendText(`glslc "${fileUri.fsPath}" -o "${outputPath}"`);
+		}
+		terminal.show();
+	});
+	context.subscriptions.push(compileShader);
 
 	const findAssetUUID = vscode.commands.registerCommand('minty-support.findAssetUUID', async function () {
 		// Get all meta files in workspace and in $(MINTY_PATH)/Data/
