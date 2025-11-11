@@ -1,5 +1,11 @@
 # Change Log
 
+## 1.3.3
+
+- Removed the shortcut for generating a UUID (ctrl+alt+u ctrl+alt+u).
+- Changed the shortcut to find an asset UUID to ctrl+alt+u ctrl+alt+u.
+- Changed the shortcut to find an asset path to ctrl+alt+u ctrl+alt+y.
+
 ## 1.3.2
 
 - Fix compile shader command. Stops it from creating a terminal each time it is ran.

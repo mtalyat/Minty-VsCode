@@ -2,7 +2,7 @@
   "name": "minty-support",
   "displayName": "Minty Support",
   "description": "Support for Minty game engine files.",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "engines": {
     "vscode": "^1.101.0"
   },
@@ -105,7 +105,7 @@
     ],
     "keybindings": [
       {
-        "command": "minty-support.generateUUID",
+        "command": "minty-support.findAssetUUID",
         "key": "ctrl+alt+u ctrl+alt+u",
         "when": "editorTextFocus"
       },
@@ -115,12 +115,8 @@
         "when": "editorTextFocus"
       },
       {
-        "command": "minty-support.findAssetUUID",
-        "key": "ctrl+alt+u ctrl+alt+f"
-      },
-      {
         "command": "minty-support.findAssetPath",
-        "key": "ctrl+alt+u ctrl+alt+p"
+        "key": "ctrl+alt+u ctrl+alt+u"
       }
     ],
     "menus": {
