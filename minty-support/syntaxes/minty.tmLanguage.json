@@ -41,7 +41,7 @@
         "uuid": {
             "patterns": [
                 {
-                    "match": "\\b[a-fA-F0-9]{16}\\b",
+                    "match": "\\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\\b",
                     "name": "constant.other.uuid.minty"
                 }
             ]

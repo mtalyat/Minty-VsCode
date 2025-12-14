@@ -8,7 +8,7 @@ const pathRegex = /(([\w\.\-]+\/)+[\w\.\-]*)/g;
 const uuidRegex = /\b[a-fA-F0-9]{16}\b/g;
 
 function generateUUID() {
-	return [...Array(16)].map(() => Math.floor(Math.random() * 16).toString(16).toUpperCase()).join('');
+	return [...Array(32)].map(() => Math.floor(Math.random() * 16).toString(16).toUpperCase()).join('');
 }
 
 function openURL(path) {

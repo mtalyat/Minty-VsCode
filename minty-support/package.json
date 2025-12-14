@@ -2,7 +2,7 @@
   "name": "minty-support",
   "displayName": "Minty Support",
   "description": "Support for Minty game engine files.",
-  "version": "1.3.3",
+  "version": "1.3.5",
   "engines": {
     "vscode": "^1.101.0"
   },
@@ -116,7 +116,7 @@
       },
       {
         "command": "minty-support.findAssetPath",
-        "key": "ctrl+alt+u ctrl+alt+u"
+        "key": "ctrl+alt+u ctrl+alt+y"
       }
     ],
     "menus": {

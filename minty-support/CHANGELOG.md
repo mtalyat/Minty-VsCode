@@ -1,5 +1,14 @@
 # Change Log
 
+## 1.3.5
+
+- Update UUID generator to generate 32 character long UUIDs.
+- Update syntax highlighting to recognize 16 character long UUIDs and 32 character long UUIDs.
+
+## 1.3.4
+
+- Fix shortcuts for finding an asset UUID and path.
+
 ## 1.3.3
 
 - Removed the shortcut for generating a UUID (ctrl+alt+u ctrl+alt+u).
