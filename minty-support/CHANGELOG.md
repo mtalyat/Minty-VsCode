@@ -1,5 +1,9 @@
 # Change Log
 
+## 1.3.6
+
+- Fix document link provider. It now searches for 16 character or 32 character UUIDs.
+
 ## 1.3.5
 
 - Update UUID generator to generate 32 character long UUIDs.

@@ -4,8 +4,9 @@ const vscode = require('vscode');
 const fs = require('fs').promises;
 const path = require('path');
 
-const pathRegex = /(([\w\.\-]+\/)+[\w\.\-]*)/g;
-const uuidRegex = /\b[a-fA-F0-9]{16}\b/g;
+const PATH_REGEX = /(([\w\.\-]+\/)+[\w\.\-]*)/g;
+const UUID_REGEX = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+const META_UUID_REGEX = /: ([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)/;
 
 function generateUUID() {
 	return [...Array(32)].map(() => Math.floor(Math.random() * 16).toString(16).toUpperCase()).join('');
@@ -84,7 +85,6 @@ function activate(context) {
 			return vscode.window.showErrorMessage('No active editor');
 		}
 
-		// Generate a 16-digit random hexadecimal string
 		const uuid = generateUUID();
 
 		editor.edit(editBuilder => {
@@ -102,7 +102,6 @@ function activate(context) {
 	context.subscriptions.push(insertUUID);
 
 	const generateUUIDDisposable = vscode.commands.registerCommand('minty-support.generateUUID', async function () {
-		// Generate a 16-digit random hexadecimal string (uppercase)
 		const uuid = generateUUID();
 
 		// Copy to clipboard
@@ -358,7 +357,7 @@ function activate(context) {
 		for (const metaFileUri of metaFiles) {
 			try {
 				const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-				const match = content.match(/: ([a-fA-F0-9]{16})/);
+				const match = content.match(META_UUID_REGEX);
 				if (match) {
 					const uuid = match[1];
 					const assetPath = metaFileUri.fsPath.replace(/\.meta$/, '');
@@ -444,7 +443,7 @@ function activate(context) {
 		for (const metaFileUri of metaFiles) {
 			try {
 				const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-				const match = content.match(/: ([a-fA-F0-9]{16})/);
+				const match = content.match(META_UUID_REGEX);
 				if (match) {
 					const uuid = match[1];
 					const assetPath = metaFileUri.fsPath.replace(/\.meta$/, '');
@@ -533,7 +532,7 @@ function activate(context) {
 			for (const metaFileUri of metaFiles) {
 				try {
 					const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-					const match = content.match(/: ([a-fA-F0-9]{16})/);
+					const match = content.match(META_UUID_REGEX);
 					if (match) {
 						const uuid = match[1];
 						const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
@@ -593,7 +592,7 @@ function activate(context) {
 
 				// --- UUID links ---
 				let match;
-				while ((match = uuidRegex.exec(lineText)) !== null) {
+				while ((match = UUID_REGEX.exec(lineText)) !== null) {
 					console.log('uuid')
 					const uuid = match[0];
 					const start = match.index;
@@ -615,7 +614,7 @@ function activate(context) {
 				}
 
 				// --- Path links ---
-				while ((match = pathRegex.exec(lineText)) !== null) {
+				while ((match = PATH_REGEX.exec(lineText)) !== null) {
 					console.log('path')
 					const pathMatch = match[0];
 					const start = match.index;
