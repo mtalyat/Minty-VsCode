@@ -584,7 +584,7 @@ function activate(context) {
 				}
 			}
 
-			console.log(`File map: ${JSON.stringify(fileMap, null, 2)}`);
+			// console.log(`File map: ${JSON.stringify(fileMap, null, 2)}`);
 
 			for (let lineNum = 0; lineNum < document.lineCount; lineNum++) {
 				const line = document.lineAt(lineNum);
@@ -593,7 +593,6 @@ function activate(context) {
 				// --- UUID links ---
 				let match;
 				while ((match = UUID_REGEX.exec(lineText)) !== null) {
-					console.log('uuid')
 					const uuid = match[0];
 					const start = match.index;
 					const end = start + uuid.length;
@@ -615,7 +614,6 @@ function activate(context) {
 
 				// --- Path links ---
 				while ((match = PATH_REGEX.exec(lineText)) !== null) {
-					console.log('path')
 					const pathMatch = match[0];
 					const start = match.index;
 					const end = start + pathMatch.length;
