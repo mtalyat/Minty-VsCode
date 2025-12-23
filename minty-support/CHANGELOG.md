@@ -1,5 +1,9 @@
 # Change Log
 
+## 1.3.7
+
+- Update README to reflect recent 1.3.x changes.
+
 ## 1.3.6
 
 - Fix document link provider. It now searches for 16 character or 32 character UUIDs.
