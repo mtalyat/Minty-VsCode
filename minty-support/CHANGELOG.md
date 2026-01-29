@@ -1,5 +1,8 @@
 # Change Log
 
+## 1.4.1
+- Remove debug statements.
+
 ## 1.4.0
 - Add insertNextUUID (ctrl+alt+u ctrl+alt+n) which will insert the next UUID, starting at 0000000000000001. Great for prefabs.
 - Add insertShortUUID (ctrl+alt+u ctrl+alt+o) which will insert a half UUID (16 characters).

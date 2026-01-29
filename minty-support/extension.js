@@ -1066,24 +1066,24 @@ function activate(context) {
 						new vscode.Position(lineNum, end)
 					);
 
-					console.log(`Found path match: ${pathMatch}`);
+					// console.log(`Found path match: ${pathMatch}`);
 
 					// Always use forward slashes for lookup
 					const normalizedPath = pathMatch.replace(/\\/g, '/');
 
 					// check if normalizedPath is within files set
 					if (fileMap[normalizedPath]) {
-						console.log(`Found file: ${normalizedPath}`);
+						// console.log(`Found file: ${normalizedPath}`);
 						// If normalizedPath is in the files set, create a link
 						const fileUri = vscode.Uri.file(fileMap[normalizedPath]);
 						links.push(new vscode.DocumentLink(range, fileUri));
 					} else {
-						console.log(`File not found in fileMap: ${normalizedPath}`);
+						// console.log(`File not found in fileMap: ${normalizedPath}`);
 					}
 				}
 			}
 
-			console.log(`Document link provider found ${links.length} links.`);
+			// console.log(`Document link provider found ${links.length} links.`);
 			return links;
 		}
 	});
