@@ -3,13 +3,16 @@
     "name": "Minty",
     "patterns": [
         {
-            "include": "#uuid"
+            "include": "#comment"
         },
         {
-            "include": "#macro"
+            "include": "#syntax"
         },
         {
             "include": "#key"
+        },
+        {
+            "include": "#uuid"
         },
         {
             "include": "#value"
@@ -18,22 +21,27 @@
             "include": "#punctuation"
         },
         {
-            "include": "#comment"
-        },
-        {
             "include": "#variables"
         }
     ],
     "repository": {
+        "syntax": {
+            "patterns": [
+                {
+                    "match": ": |- ",
+                    "name": "meta.structure.minty"
+                }
+            ]
+        },
         "comment": {
             "patterns": [
                 {
-                    "match": "#.*$",
+                    "match": "#(|.|[^#][^#].*)$",
                     "name": "comment.line.minty"
                 },
                 {
-                    "begin": "#-",
-                    "end": "-#",
+                    "begin": "###",
+                    "end": "###",
                     "name": "comment.block.minty"
                 }
             ]
@@ -46,61 +54,26 @@
                 }
             ]
         },
-        "macro": {
-            "patterns": [
-                {
-                    "begin": "^\\s*#\\s*define\\s+([A-Z_][A-Z0-9_]*)\\s*(\\()?",
-                    "beginCaptures": {
-                        "1": {
-                            "name": "entity.name.function.preprocessor.minty"
-                        },
-                        "2": {
-                            "name": "punctuation.definition.parameters.begin.minty"
-                        }
-                    },
-                    "end": "$",
-                    "patterns": [
-                        {
-                            "name": "variable.parameter.macro.minty",
-                            "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
-                        },
-                        {
-                            "name": "punctuation.definition.parameters.end.minty",
-                            "match": "\\)"
-                        }
-                    ],
-                    "name": "keyword.control.directive.define.minty"
-                },
-                {
-                    "name": "entity.name.function.preprocessor.call.minty",
-                    "match": "\\b[A-Z_][A-Z0-9_]*\\s*(?=\\()"
-                },
-                {
-                    "name": "constant.other.preprocessor.minty",
-                    "match": "\\b[A-Z_][A-Z0-9_]*\\b(?=\\s)"
-                }
-            ]
-        },
         "key": {
             "patterns": [
                 {
-                    "match": "^(- |: |[^\\s][^:]*)",
+                    "match": "^([^\\s#:-][^#:]*)",
                     "name": "support.element.0.minty"
                 },
                 {
-                    "match": "^(?:\\t|\\s{4})(- |: |[^\\s][^:]*)",
+                    "match": "^(?:\\t|\\s{4})([^\\s#:-][^#:]*)",
                     "name": "storage.element.1.minty"
                 },
                 {
-                    "match": "^(?:\\t|\\s{4}){2}(- |: |[^\\s][^:]*)",
+                    "match": "^(?:\\t|\\s{4}){2}([^\\s#:-][^#:]*)",
                     "name": "entity.element.2.minty"
                 },
                 {
-                    "match": "^(?:\\t|\\s{4}){3}(- |: |[^\\s][^:]*)",
+                    "match": "^(?:\\t|\\s{4}){3}([^\\s#:-][^#:]*)",
                     "name": "variable.element.3.minty"
                 },
                 {
-                    "match": "^(?:\\t|\\s{4}){4,}(- |: |[^\\s][^:]*)",
+                    "match": "^(?:\\t|\\s{4}){4,}([^\\s#:-][^#:]*)",
                     "name": "keyword.element.4.minty"
                 }
             ]

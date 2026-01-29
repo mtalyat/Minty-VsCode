@@ -99,10 +99,24 @@
 			}
 		},
 		{
-			"scope": "constant.other.uuid.minty",
+			"scope": "constant.other.uuid.default.minty",
 			"settings": {
 				"fontStyle": "",
 				"foreground": "#a65bfc"
+			}
+		},
+		{
+			"scope": "constant.other.uuid.local.minty",
+			"settings": {
+				"fontStyle": "",
+				"foreground": "#e15bfc"
+			}
+		},
+		{
+			"scope": "constant.other.uuid.global.minty",
+			"settings": {
+				"fontStyle": "",
+				"foreground": "#fc5b93"
 			}
 		},
 		{

@@ -2,7 +2,7 @@
   "name": "minty-support",
   "displayName": "Minty Support",
   "description": "Support for Minty game engine files.",
-  "version": "1.3.7",
+  "version": "1.4.0",
   "engines": {
     "vscode": "^1.101.0"
   },
@@ -67,8 +67,20 @@
         "title": "Minty: Generate UUID"
       },
       {
+        "command": "minty-support.generateShortUUID",
+        "title": "Minty: Generate Short UUID"
+      },
+      {
         "command": "minty-support.insertUUID",
         "title": "Minty: Insert UUID"
+      },
+      {
+        "command": "minty-support.insertNextUUID",
+        "title": "Minty: Insert Next UUID"
+      },
+      {
+        "command": "minty-support.insertShortUUID",
+        "title": "Minty: Insert Short UUID"
       },
       {
         "command": "minty-support.openMintyDocs",
@@ -115,6 +127,16 @@
         "when": "editorTextFocus"
       },
       {
+        "command": "minty-support.insertNextUUID",
+        "key": "ctrl+alt+u ctrl+alt+n",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "minty-support.insertShortUUID",
+        "key": "ctrl+alt+u ctrl+alt+o",
+        "when": "editorTextFocus"
+      },
+      {
         "command": "minty-support.findAssetPath",
         "key": "ctrl+alt+u ctrl+alt+y"
       }
@@ -137,7 +159,36 @@
           "when": "!explorerResourceIsFolder && (resourceExtname == .frag || resourceExtname == .vert || resourceExtname == .glsl)"
         }
       ]
-    }
+    },
+    "colors": [
+      {
+        "id": "constant.other.uuid.default.minty",
+        "description": "Color for UUIDs in Minty files",
+        "defaults": {
+          "dark": "#a65bfc",
+          "light": "#a65bfc",
+          "highContrast": "#a65bfc"
+        }
+      },
+      {
+        "id": "constant.other.uuid.local.minty",
+        "description": "Color for local UUID references in Minty files",
+        "defaults": {
+          "dark": "#e15bfc",
+          "light": "#e15bfc",
+          "highContrast": "#e15bfc"
+        }
+      },
+      {
+        "id": "constant.other.uuid.global.minty",
+        "description": "Color for global UUID references in Minty files",
+        "defaults": {
+          "dark": "#fc5b93",
+          "light": "#fc5b93",
+          "highContrast": "#fc5b93"
+        }
+      }
+    ]
   },
   "scripts": {
     "lint": "eslint .",

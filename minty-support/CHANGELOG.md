@@ -1,5 +1,17 @@
 # Change Log
 
+## 1.4.0
+- Add insertNextUUID (ctrl+alt+u ctrl+alt+n) which will insert the next UUID, starting at 0000000000000001. Great for prefabs.
+- Add insertShortUUID (ctrl+alt+u ctrl+alt+o) which will insert a half UUID (16 characters).
+- Remove syntax highlighting for macros, as they are no longer supported.
+- Fixed comment syntax highlighting.
+- Changed multi-line comments to use ### for the beginning and end of a comment.
+- Fix asset path document links not working if the Game directory is not the Working Directory.
+- Add hovering over UUID and document links for more information.
+- Add decorations for UUID and document links to see what they are pointing to.
+- Add distinct colors for UUIDs that are generic, point to a local element (point to an Entity, etc.), or point to a global element (another Asset file, etc.).
+- Update README to reflect new features.
+
 ## 1.3.7
 
 - Update README to reflect recent 1.3.x changes.

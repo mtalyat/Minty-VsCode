@@ -12,6 +12,10 @@ function generateUUID() {
 	return [...Array(32)].map(() => Math.floor(Math.random() * 16).toString(16).toUpperCase()).join('');
 }
 
+function generateShortUUID() {
+	return [...Array(16)].map(() => Math.floor(Math.random() * 16).toString(16).toUpperCase()).join('');
+}
+
 function openURL(path) {
 	const url = vscode.Uri.file(path);
 	vscode.env.openExternal(url);
@@ -79,6 +83,301 @@ async function getTemplateFiles() {
 function activate(context) {
 	console.log('minty-support now active.');
 
+	// Create decoration types
+	const uuidHintDecorationType = vscode.window.createTextEditorDecorationType({
+		after: {
+			color: new vscode.ThemeColor('editorCodeLens.foreground'),
+			fontStyle: 'italic',
+			margin: '0 0 0 1em'
+		}
+	});
+
+	// Default UUID decoration (purple color for unknown references)
+	const defaultUuidDecorationType = vscode.window.createTextEditorDecorationType({
+		color: new vscode.ThemeColor('constant.other.uuid.default.minty')
+	});
+
+	// Local UUID decoration (cyan/blue color for local references)
+	const localUuidDecorationType = vscode.window.createTextEditorDecorationType({
+		color: new vscode.ThemeColor('constant.other.uuid.local.minty')
+	});
+
+	// Global UUID decoration (green/string color for global references)
+	const globalUuidDecorationType = vscode.window.createTextEditorDecorationType({
+		color: new vscode.ThemeColor('constant.other.uuid.global.minty')
+	});
+
+	async function updateUuidDecorations(editor) {
+		if (!editor || editor.document.languageId !== 'minty') {
+			return;
+		}
+
+		const document = editor.document;
+		const decorations = [];
+
+		// Find all UUID occurrences in the document
+		const uuidOccurrences = {};
+		for (let lineNum = 0; lineNum < document.lineCount; lineNum++) {
+			const line = document.lineAt(lineNum);
+			const lineText = line.text;
+
+			// Calculate indentation level (count leading whitespace)
+			const indentMatch = lineText.match(/^(\s*)/);
+			const indentation = indentMatch ? indentMatch[1].length : 0;
+
+			const uuidRegex = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+			let match;
+			while ((match = uuidRegex.exec(lineText)) !== null) {
+				const uuid = match[0];
+				if (!uuidOccurrences[uuid]) {
+					uuidOccurrences[uuid] = [];
+				}
+				uuidOccurrences[uuid].push({
+					lineNum,
+					start: match.index,
+					end: match.index + uuid.length,
+					lineText: lineText,
+					indentation: indentation
+				});
+			}
+		}
+
+		// Get all meta files for external lookups
+		const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
+		let mintyMetaFiles = [];
+		const mintyPath = process.env.MINTY_PATH;
+		if (mintyPath) {
+			const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
+			try {
+				const mintyDataMetaFiles = await vscode.workspace.findFiles(
+					new vscode.RelativePattern(mintyDataUri, '**/*.meta')
+				);
+				mintyMetaFiles = mintyDataMetaFiles;
+			} catch (e) {
+				console.error('Error searching for meta files:', e);
+			}
+		}
+
+		const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
+		const uuidToFileMap = {};
+		for (const metaFileUri of metaFiles) {
+			try {
+				const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
+				const match = content.match(META_UUID_REGEX);
+				if (match) {
+					const foundUuid = match[1];
+					const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
+					uuidToFileMap[foundUuid] = filePath;
+				}
+			} catch (e) {
+				console.error(`Error reading meta file:`, e);
+			}
+		}
+
+		// Find Game or Project directory
+		const workspaceFolders = vscode.workspace.workspaceFolders || [];
+		let workspaceRoot = workspaceFolders.length > 0 ? workspaceFolders[0].uri.fsPath : '';
+		let baseDir = workspaceRoot;
+		
+		if (workspaceRoot) {
+			const gameDir = path.join(workspaceRoot, 'Game');
+			const projectDir = path.join(workspaceRoot, 'Project');
+			
+			try {
+				const gameStat = await vscode.workspace.fs.stat(vscode.Uri.file(gameDir));
+				if (gameStat.type === vscode.FileType.Directory) {
+					baseDir = gameDir;
+				}
+			} catch (e) {
+				try {
+					const projectStat = await vscode.workspace.fs.stat(vscode.Uri.file(projectDir));
+					if (projectStat.type === vscode.FileType.Directory) {
+						baseDir = projectDir;
+					}
+				} catch (e) {
+					// Use workspace root
+				}
+			}
+		}
+
+		// Process each UUID occurrence
+		const defaultUuidDecorations = [];
+		const localUuidDecorations = [];
+		const globalUuidDecorations = [];
+		
+		for (let lineNum = 0; lineNum < document.lineCount; lineNum++) {
+			const line = document.lineAt(lineNum);
+			const lineText = line.text;
+
+			const uuidRegex = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+			let match;
+			while ((match = uuidRegex.exec(lineText)) !== null) {
+				const uuid = match[0];
+				const start = match.index;
+				const end = start + uuid.length;
+
+				let hintText = '';
+				let isLocal = false;
+				let isGlobal = false;
+
+				// Check for local references first
+				const occurrences = uuidOccurrences[uuid];
+				if (occurrences && occurrences.length > 1) {
+					// Find the occurrence with the lowest indentation
+					const minIndentation = Math.min(...occurrences.map(o => o.indentation));
+					const targetOccurrence = occurrences.find(o => o.indentation === minIndentation);
+					
+					const isTargetOccurrence = targetOccurrence.lineNum === lineNum && targetOccurrence.start === start;
+
+					if (!isTargetOccurrence) {
+						// Extract label from target occurrence
+						const beforeUuid = targetOccurrence.lineText.substring(0, targetOccurrence.start).trim();
+						let label = beforeUuid.replace(/[:\-]\s*$/, '').trim();
+						if (label) {
+							hintText = `→ ${label}`;
+						}
+					}
+					
+					isLocal = true;
+				}
+
+				// Check external files if no local reference
+				if (!hintText && uuidToFileMap[uuid]) {
+					const filePath = uuidToFileMap[uuid];
+					let displayPath = path.basename(filePath);
+					
+					// Get relative path if in workspace
+					if (baseDir && filePath.startsWith(baseDir)) {
+						displayPath = path.relative(baseDir, filePath).replace(/\\/g, '/');
+					} else if (mintyPath && filePath.startsWith(path.join(mintyPath, 'Data'))) {
+						const dataDir = path.join(mintyPath, 'Data');
+						displayPath = path.relative(dataDir, filePath).replace(/\\/g, '/');
+					}
+					
+					hintText = `→ ${displayPath}`;
+					isGlobal = true;
+				}
+
+				// Add color decoration for the UUID itself
+				const uuidRange = new vscode.Range(lineNum, start, lineNum, end);
+				if (isLocal) {
+					localUuidDecorations.push(uuidRange);
+				} else if (isGlobal) {
+					globalUuidDecorations.push(uuidRange);
+				} else
+				{
+					defaultUuidDecorations.push(uuidRange);
+				}
+
+				if (hintText) {
+					const range = new vscode.Range(lineNum, end, lineNum, end);
+					decorations.push({
+						range,
+						renderOptions: {
+							after: {
+								contentText: hintText
+							}
+						}
+					});
+				}
+			}
+		}
+
+		editor.setDecorations(uuidHintDecorationType, decorations);
+		editor.setDecorations(defaultUuidDecorationType, defaultUuidDecorations);
+		editor.setDecorations(localUuidDecorationType, localUuidDecorations);
+		editor.setDecorations(globalUuidDecorationType, globalUuidDecorations);
+
+		// Process path matches
+		for (let lineNum = 0; lineNum < document.lineCount; lineNum++) {
+			const line = document.lineAt(lineNum);
+			const lineText = line.text;
+
+			const pathRegex = /(([\w\.\-]+\/)+[\w\.\-]*)/g;
+			let match;
+			while ((match = pathRegex.exec(lineText)) !== null) {
+				const pathMatch = match[0];
+				const start = match.index;
+				const end = start + pathMatch.length;
+
+				// Normalize path
+				const normalizedPath = pathMatch.replace(/\\/g, '/');
+
+				// Try to find the file in workspace
+				let fullPath = null;
+				if (baseDir) {
+					const candidatePath = path.join(baseDir, normalizedPath);
+					try {
+						await vscode.workspace.fs.stat(vscode.Uri.file(candidatePath));
+						fullPath = candidatePath;
+					} catch (e) {
+						// File not found in base dir
+					}
+				}
+
+				// Try minty path
+				if (!fullPath && mintyPath) {
+					const dataDir = path.join(mintyPath, 'Data');
+					const candidatePath = path.join(dataDir, normalizedPath);
+					try {
+						await vscode.workspace.fs.stat(vscode.Uri.file(candidatePath));
+						fullPath = candidatePath;
+					} catch (e) {
+						// File not found in minty data
+					}
+				}
+
+				// If we found the file, check for .meta file
+				if (fullPath) {
+					const metaPath = `${fullPath}.meta`;
+					try {
+						const metaContent = await fs.readFile(metaPath, 'utf8');
+						const metaMatch = metaContent.match(META_UUID_REGEX);
+						if (metaMatch) {
+							const uuid = metaMatch[1];
+							const range = new vscode.Range(lineNum, end, lineNum, end);
+							decorations.push({
+								range,
+								renderOptions: {
+									after: {
+										contentText: `→ ${uuid}`
+									}
+								}
+							});
+						}
+					} catch (e) {
+						// No .meta file or error reading it
+					}
+				}
+			}
+		}
+
+		// Set decorations after processing paths
+		editor.setDecorations(uuidHintDecorationType, decorations);
+	}
+
+	// Update decorations on active editor change
+	if (vscode.window.activeTextEditor) {
+		updateUuidDecorations(vscode.window.activeTextEditor);
+	}
+
+	context.subscriptions.push(
+		vscode.window.onDidChangeActiveTextEditor(editor => {
+			if (editor) {
+				updateUuidDecorations(editor);
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeTextDocument(event => {
+			const editor = vscode.window.activeTextEditor;
+			if (editor && event.document === editor.document) {
+				updateUuidDecorations(editor);
+			}
+		})
+	);
+
 	const insertUUID = vscode.commands.registerCommand('minty-support.insertUUID', async function () {
 		const editor = vscode.window.activeTextEditor;
 		if (!editor) {
@@ -101,6 +400,71 @@ function activate(context) {
 	});
 	context.subscriptions.push(insertUUID);
 
+	const insertNextUUID = vscode.commands.registerCommand('minty-support.insertNextUUID', async function () {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			return vscode.window.showErrorMessage('No active editor');
+		}
+
+		const document = editor.document;
+		const text = document.getText();
+
+		// Regex to match 16 hex digits
+		const hexRegex = /\b[0-9a-fA-F]{16}\b/g;
+		const matches = [];
+		let match;
+		while ((match = hexRegex.exec(text)) !== null) {
+			matches.push(match[0]);
+		}
+
+		// Parse as hex numbers
+		const numbers = matches.map(m => parseInt(m, 16)).filter(n => !isNaN(n));
+
+		// Find the next unused number starting from 1
+		let nextNum = 1;
+		while (numbers.includes(nextNum)) {
+			nextNum++;
+		}
+
+		// Format as 16 hex digits uppercase
+		const nextUUID = nextNum.toString(16).toUpperCase().padStart(16, '0');
+
+		editor.edit(editBuilder => {
+			for (const selection of editor.selections) {
+				editBuilder.insert(selection.active, nextUUID);
+			}
+		});
+
+		// Copy to clipboard
+		await vscode.env.clipboard.writeText(nextUUID);
+
+		// Optional: Show confirmation
+		vscode.window.showInformationMessage(`Next UUID inserted and copied to clipboard: ${nextUUID}`);
+	});
+	context.subscriptions.push(insertNextUUID);
+
+	const insertShortUUID = vscode.commands.registerCommand('minty-support.insertShortUUID', async function () {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			return vscode.window.showErrorMessage('No active editor');
+		}
+
+		const shortUUID = generateShortUUID();
+
+		editor.edit(editBuilder => {
+			for (const selection of editor.selections) {
+				editBuilder.insert(selection.active, shortUUID);
+			}
+		});
+
+		// Copy to clipboard
+		await vscode.env.clipboard.writeText(shortUUID);
+
+		// Optional: Show confirmation
+		vscode.window.showInformationMessage(`Short UUID inserted and copied to clipboard: ${shortUUID}`);
+	});
+	context.subscriptions.push(insertShortUUID);
+
 	const generateUUIDDisposable = vscode.commands.registerCommand('minty-support.generateUUID', async function () {
 		const uuid = generateUUID();
 
@@ -111,6 +475,17 @@ function activate(context) {
 		vscode.window.showInformationMessage(`UUID copied to clipboard: ${uuid}`);
 	});
 	context.subscriptions.push(generateUUIDDisposable);
+
+	const generateShortUUIDDisposable = vscode.commands.registerCommand('minty-support.generateShortUUID', async function () {
+		const shortUUID = generateShortUUID();
+
+		// Copy to clipboard
+		await vscode.env.clipboard.writeText(shortUUID);
+
+		// Optional: Show confirmation
+		vscode.window.showInformationMessage(`Short UUID copied to clipboard: ${shortUUID}`);
+	});
+	context.subscriptions.push(generateShortUUIDDisposable);
 
 	const openWebsite = vscode.commands.registerCommand('minty-support.openMintyDocs', () => {
 		openURL('https://github.com/mtalyat/Minty/wiki');
@@ -562,12 +937,38 @@ function activate(context) {
 
 			const fileMap = {};
 
-			// Map workspace files: key = relative to workspace root (with forward slashes), value = full path
+			// Find Game or Project directory to use as base
 			const workspaceFolders = vscode.workspace.workspaceFolders || [];
 			let workspaceRoot = workspaceFolders.length > 0 ? workspaceFolders[0].uri.fsPath : '';
+			let baseDir = workspaceRoot;
+			
+			// Look for Game or Project directory in the workspace
+			if (workspaceRoot) {
+				const gameDir = path.join(workspaceRoot, 'Game');
+				const projectDir = path.join(workspaceRoot, 'Project');
+				
+				try {
+					const gameStat = await vscode.workspace.fs.stat(vscode.Uri.file(gameDir));
+					if (gameStat.type === vscode.FileType.Directory) {
+						baseDir = gameDir;
+					}
+				} catch (e) {
+					// Game directory doesn't exist, try Project
+					try {
+						const projectStat = await vscode.workspace.fs.stat(vscode.Uri.file(projectDir));
+						if (projectStat.type === vscode.FileType.Directory) {
+							baseDir = projectDir;
+						}
+					} catch (e) {
+						// Neither exists, use workspace root
+					}
+				}
+			}
+
+			// Map workspace files: key = relative to base directory (with forward slashes), value = full path
 			for (const file of workspaceFiles) {
-				let relPath = workspaceRoot && file.fsPath.startsWith(workspaceRoot)
-					? path.relative(workspaceRoot, file.fsPath)
+				let relPath = baseDir && file.fsPath.startsWith(baseDir)
+					? path.relative(baseDir, file.fsPath)
 					: file.fsPath;
 				relPath = relPath.replace(/\\/g, '/'); // normalize to forward slashes
 				fileMap[relPath] = file.fsPath;
@@ -586,6 +987,30 @@ function activate(context) {
 
 			// console.log(`File map: ${JSON.stringify(fileMap, null, 2)}`);
 
+			// First pass: collect all UUID occurrences in the document
+			const uuidOccurrences = {}; // uuid -> array of {lineNum, start, end, indentation}
+			for (let lineNum = 0; lineNum < document.lineCount; lineNum++) {
+				const line = document.lineAt(lineNum);
+				const lineText = line.text;
+
+				// Calculate indentation level (count leading whitespace)
+				const indentMatch = lineText.match(/^(\s*)/);
+				const indentation = indentMatch ? indentMatch[1].length : 0;
+
+				let match;
+				const uuidRegex = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+				while ((match = uuidRegex.exec(lineText)) !== null) {
+					const uuid = match[0];
+					const start = match.index;
+					const end = start + uuid.length;
+
+					if (!uuidOccurrences[uuid]) {
+						uuidOccurrences[uuid] = [];
+					}
+					uuidOccurrences[uuid].push({ lineNum, start, end, indentation });
+				}
+			}
+
 			for (let lineNum = 0; lineNum < document.lineCount; lineNum++) {
 				const line = document.lineAt(lineNum);
 				const lineText = line.text;
@@ -602,7 +1027,25 @@ function activate(context) {
 						new vscode.Position(lineNum, end)
 					);
 
-					// Search meta files for this UUID
+					// Check if this UUID appears multiple times in the document
+					const occurrences = uuidOccurrences[uuid];
+					if (occurrences && occurrences.length > 1) {
+						// Find the occurrence with the lowest indentation
+						const minIndentation = Math.min(...occurrences.map(o => o.indentation));
+						const targetOccurrence = occurrences.find(o => o.indentation === minIndentation);
+						
+						const isTargetOccurrence = targetOccurrence.lineNum === lineNum && targetOccurrence.start === start;
+
+						if (!isTargetOccurrence) {
+							// This is not the target occurrence, link to the lowest indented occurrence
+							const targetPosition = new vscode.Position(targetOccurrence.lineNum, targetOccurrence.start);
+							const targetUri = document.uri.with({ fragment: `L${targetOccurrence.lineNum + 1}` });
+							links.push(new vscode.DocumentLink(range, targetUri));
+							continue; // Skip checking meta files
+						}
+					}
+
+					// Search meta files for this UUID (only for first occurrence or unique UUIDs)
 					if (uuidToFileMap[uuid]) {
 						const foundUri = vscode.Uri.file(uuidToFileMap[uuid]);
 
@@ -646,6 +1089,127 @@ function activate(context) {
 	});
 
 	context.subscriptions.push(provider);
+
+	const hoverProvider = vscode.languages.registerHoverProvider('minty', {
+		async provideHover(document, position, token) {
+			const range = document.getWordRangeAtPosition(position, UUID_REGEX);
+			if (!range) {
+				return null;
+			}
+
+			const uuid = document.getText(range);
+
+			// First, check for local references in the document
+			const uuidOccurrences = [];
+			for (let lineNum = 0; lineNum < document.lineCount; lineNum++) {
+				const line = document.lineAt(lineNum);
+				const lineText = line.text;
+
+				const uuidRegex = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+				let match;
+				while ((match = uuidRegex.exec(lineText)) !== null) {
+					if (match[0] === uuid) {
+						uuidOccurrences.push({
+							lineNum,
+							start: match.index,
+							end: match.index + match[0].length,
+							lineText: lineText
+						});
+					}
+				}
+			}
+
+			// If this UUID appears multiple times in the document, show local reference info
+			if (uuidOccurrences.length > 1) {
+				const firstOccurrence = uuidOccurrences[0];
+				const lineText = firstOccurrence.lineText;
+				
+				// Extract the label/key before the UUID (everything before the UUID on that line)
+				const beforeUuid = lineText.substring(0, firstOccurrence.start).trim();
+				
+				// Remove common suffixes like ':' or '-' from the label
+				let label = beforeUuid.replace(/[:\-]\s*$/, '').trim();
+				
+				const hoverMessage = new vscode.MarkdownString();
+				hoverMessage.appendCodeblock(uuid, 'text');
+				
+				if (label) {
+					hoverMessage.appendMarkdown(`**Local reference to:** ${label}`);
+				} else {
+					hoverMessage.appendMarkdown(`**Local reference** (line ${firstOccurrence.lineNum + 1})`);
+				}
+				
+				return new vscode.Hover(hoverMessage, range);
+			}
+
+			// Get all meta files in workspace and in $(MINTY_PATH)/Data/
+			const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
+
+			let mintyMetaFiles = [];
+			const mintyPath = process.env.MINTY_PATH;
+			if (mintyPath) {
+				const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
+				try {
+					const mintyDataMetaFiles = await vscode.workspace.findFiles(
+						new vscode.RelativePattern(mintyDataUri, '**/*.meta')
+					);
+					mintyMetaFiles = mintyDataMetaFiles;
+				} catch (e) {
+					console.error('Error searching for meta files in MINTY_PATH/Data:', e);
+				}
+			}
+
+			const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
+
+			// Build a map: UUID -> file path
+			const uuidToFileMap = {};
+			for (const metaFileUri of metaFiles) {
+				try {
+					const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
+					const match = content.match(META_UUID_REGEX);
+					if (match) {
+						const foundUuid = match[1];
+						const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
+						uuidToFileMap[foundUuid] = filePath;
+					}
+				} catch (e) {
+					console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
+				}
+			}
+
+			// Look up the UUID in meta files
+			if (uuidToFileMap[uuid]) {
+				const filePath = uuidToFileMap[uuid];
+				
+				// Get relative path for display
+				const workspaceFolders = vscode.workspace.workspaceFolders || [];
+				let displayPath = filePath;
+				
+				if (workspaceFolders.length > 0) {
+					const workspaceRoot = workspaceFolders[0].uri.fsPath;
+					if (filePath.startsWith(workspaceRoot)) {
+						displayPath = path.relative(workspaceRoot, filePath).replace(/\\/g, '/');
+					}
+				}
+				
+				// If it's from MINTY_PATH, show it relative to Data folder
+				if (mintyPath && filePath.startsWith(path.join(mintyPath, 'Data'))) {
+					const dataDir = path.join(mintyPath, 'Data');
+					displayPath = `[Minty] ${path.relative(dataDir, filePath).replace(/\\/g, '/')}`;
+				}
+
+				const hoverMessage = new vscode.MarkdownString();
+				hoverMessage.appendCodeblock(uuid, 'text');
+				hoverMessage.appendMarkdown(`**Global reference to:** ${displayPath}`);
+				
+				return new vscode.Hover(hoverMessage, range);
+			}
+
+			return null;
+		}
+	});
+
+	context.subscriptions.push(hoverProvider);
 }
 
 // This method is called when your extension is deactivated
