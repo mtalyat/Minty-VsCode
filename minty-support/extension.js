@@ -845,6 +845,13 @@ function activate(context) {
 						copyPath = relativePath;
 					}
 
+					// Remove leading "Game/" or "Project/" from copyPath if present
+					if (copyPath.startsWith('Game/')) {
+						copyPath = copyPath.substring(5); // Remove "Game/"
+					} else if (copyPath.startsWith('Project/')) {
+						copyPath = copyPath.substring(8); // Remove "Project/"
+					}
+
 					assetItems.push({
 						label: displayPath,
 						description: uuid,

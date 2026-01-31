@@ -1,6 +1,10 @@
 # Change Log
 
 ## 1.4.1
+- Fix README screenshot.
+- Finding asset paths will now omit the initial "Game" or "Project", if any.
+
+## 1.4.1
 - Remove debug statements.
 
 ## 1.4.0

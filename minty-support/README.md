@@ -4,7 +4,7 @@ The official support extension for VsCode for the [Minty](https://github.com/mta
 
 ## Features
 
-![Example screenshot](images/example.png)
+![Example screenshot](https://raw.githubusercontent.com/mtalyat/Minty-VsCode/refs/heads/master/minty-support/images/example.png)
 
 - File navigation (ctrl+click a path to open the file).
 - UUID navigation (ctrl+click a UUID to open its corresponding file).
