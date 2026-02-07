@@ -222,9 +222,89 @@ function activate(context) {
 				let hintText = '';
 				let isLocal = false;
 				let isGlobal = false;
+				let isPrefabEntity = false; // Track if this is a prefab entity reference
 
-				// Check external files first (prefer global references)
-				if (!isZeroUuid && uuidToFileMap[uuid]) {
+				// Check if UUID is wrapped in brackets (might be referencing entity in a prefab)
+				const isWrappedInBrackets = start > 0 && lineText[start - 1] === '[' && lineText[end] === ']';
+				
+				if (!isZeroUuid && isWrappedInBrackets) {
+				// Calculate current line's indentation
+				const currentIndentMatch = lineText.match(/^(\s*)/);
+				const currentIndentation = currentIndentMatch ? currentIndentMatch[1].length : 0;
+				
+				// Look backwards for an ancestor line with less indentation that has a prefab UUID
+				let prefabUuid = null;
+				for (let searchLineNum = lineNum - 1; searchLineNum >= 0; searchLineNum--) {
+					const searchLine = document.lineAt(searchLineNum);
+					const searchText = searchLine.text;
+					
+					// Calculate indentation
+					const searchIndentMatch = searchText.match(/^(\s*)/);
+					const searchIndentation = searchIndentMatch ? searchIndentMatch[1].length : 0;
+					
+					// Only check lines with less indentation (ancestor lines)
+					if (searchIndentation < currentIndentation) {
+						// Pattern 1: something: UUID [PrefabUUID] (exact UUID match)
+						const prefabPattern1 = new RegExp(`:\\s*${uuid}\\s+\\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\\]`);
+						const prefabMatch1 = searchText.match(prefabPattern1);
+						
+						if (prefabMatch1) {
+							prefabUuid = prefabMatch1[1];
+							break;
+						}
+						
+						// Pattern 2: something: [PrefabUUID] (ancestor has prefab reference)
+						const prefabPattern2 = /:\s*\[?([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]?$/;
+						const prefabMatch2 = searchText.match(prefabPattern2);
+						
+						if (prefabMatch2) {
+							const potentialPrefabUuid = prefabMatch2[1];
+							// Check if this UUID is in our map (it's a prefab)
+							if (uuidToFileMap[potentialPrefabUuid]) {
+								prefabUuid = potentialPrefabUuid;
+								break;
+							}
+						}
+					}
+				}
+				
+				if (prefabUuid) {
+					isPrefabEntity = true; // Mark this as a prefab entity reference
+					
+					// Get the prefab file path
+					if (uuidToFileMap[prefabUuid]) {
+						const prefabFilePath = uuidToFileMap[prefabUuid];
+						
+						try {
+							// Read the prefab file
+							const prefabContent = await fs.readFile(prefabFilePath, 'utf8');
+							const prefabLines = prefabContent.split('\n');
+							
+							// Search for the UUID in the prefab file
+							for (const prefabLine of prefabLines) {
+								if (prefabLine.includes(uuid)) {
+									// Extract label before the UUID
+									const uuidIndex = prefabLine.indexOf(uuid);
+									const beforeUuid = prefabLine.substring(0, uuidIndex).trim();
+									let label = beforeUuid.replace(/[:\-]\s*$/, '').trim();
+									
+									if (label) {
+										hintText = `→ ${label}`;
+										isGlobal = true; // Prefab entities use global color
+										break;
+									}
+								}
+							}
+						} catch (e) {
+							// Failed to read prefab file
+							console.error(`Error reading prefab file ${prefabFilePath}:`, e);
+						}
+					}
+				}
+			}
+
+			// Check external files first (prefer global references)
+				if (!isPrefabEntity && !hintText && !isZeroUuid && uuidToFileMap[uuid]) {
 					const filePath = uuidToFileMap[uuid];
 					let displayPath = path.basename(filePath);
 					
@@ -238,7 +318,7 @@ function activate(context) {
 					
 					hintText = `→ ${displayPath}`;
 					isGlobal = true;
-				} else if (!isZeroUuid) {
+				} else if (!isPrefabEntity && !isZeroUuid) {
 					// Check for local references only if no global reference found
 					const occurrences = uuidOccurrences[uuid];
 					if (occurrences && occurrences.length > 1) {
@@ -263,7 +343,10 @@ function activate(context) {
 
 				// Add color decoration for the UUID itself
 				const uuidRange = new vscode.Range(lineNum, start, lineNum, end);
-				if (isLocal) {
+				if (isPrefabEntity) {
+					// Prefab entities always use global color
+					globalUuidDecorations.push(uuidRange);
+				} else if (isLocal) {
 					localUuidDecorations.push(uuidRange);
 				} else if (isGlobal) {
 					globalUuidDecorations.push(uuidRange);
@@ -273,7 +356,13 @@ function activate(context) {
 				}
 
 				if (hintText) {
-					const range = new vscode.Range(lineNum, end, lineNum, end);
+					// Check if UUID is wrapped in brackets [UUID]
+					let decorationPos = end;
+					if (start > 0 && lineText[start - 1] === '[' && lineText[end] === ']') {
+						decorationPos = end + 1; // Position after the closing bracket
+					}
+					
+					const range = new vscode.Range(lineNum, decorationPos, lineNum, decorationPos);
 					decorations.push({
 						range,
 						renderOptions: {
@@ -338,7 +427,14 @@ function activate(context) {
 						const metaMatch = metaContent.match(META_UUID_REGEX);
 						if (metaMatch) {
 							const uuid = metaMatch[1];
-							const range = new vscode.Range(lineNum, end, lineNum, end);
+							
+							// Check if path is wrapped in brackets
+							let decorationPos = end;
+							if (start > 0 && lineText[start - 1] === '[' && lineText[end] === ']') {
+								decorationPos = end + 1; // Position after the closing bracket
+							}
+							
+							const range = new vscode.Range(lineNum, decorationPos, lineNum, decorationPos);
 							decorations.push({
 								range,
 								renderOptions: {
@@ -1043,6 +1139,87 @@ function activate(context) {
 						new vscode.Position(lineNum, end)
 					);
 
+					// Check if UUID is wrapped in brackets (might be referencing entity in a prefab)
+					const isWrappedInBrackets = start > 0 && lineText[start - 1] === '[' && lineText[end] === ']';
+					
+					if (isWrappedInBrackets) {
+						// Calculate current line's indentation
+						const currentIndentMatch = lineText.match(/^(\s*)/);
+						const currentIndentation = currentIndentMatch ? currentIndentMatch[1].length : 0;
+						
+						// Look backwards for an ancestor line with less indentation that has a prefab UUID
+						let prefabUuid = null;
+						for (let searchLineNum = lineNum - 1; searchLineNum >= 0; searchLineNum--) {
+							const searchLine = document.lineAt(searchLineNum);
+							const searchText = searchLine.text;
+							
+							// Calculate indentation
+							const searchIndentMatch = searchText.match(/^(\s*)/);
+							const searchIndentation = searchIndentMatch ? searchIndentMatch[1].length : 0;
+							
+							// Only check lines with less indentation (ancestor lines)
+							if (searchIndentation < currentIndentation) {
+								// Pattern 1: something: UUID [PrefabUUID] (exact UUID match)
+								const prefabPattern1 = new RegExp(`:\\s*${uuid}\\s+\\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\\]`);
+								const prefabMatch1 = searchText.match(prefabPattern1);
+								
+								if (prefabMatch1) {
+									prefabUuid = prefabMatch1[1];
+									break;
+								}
+								
+								// Pattern 2: something: [PrefabUUID] (ancestor has prefab reference)
+								const prefabPattern2 = /:\s*\[?([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]?$/;
+								const prefabMatch2 = searchText.match(prefabPattern2);
+								
+								if (prefabMatch2) {
+									const potentialPrefabUuid = prefabMatch2[1];
+									// Check if this UUID is in our map (it's a prefab)
+									if (uuidToFileMap[potentialPrefabUuid]) {
+										prefabUuid = potentialPrefabUuid;
+										break;
+									}
+								}
+							}
+						}
+						
+						if (prefabUuid && uuidToFileMap[prefabUuid]) {
+							const prefabFilePath = uuidToFileMap[prefabUuid];
+							const prefabFileUri = vscode.Uri.file(prefabFilePath);
+							
+							// Try to find the line number in the prefab file where this UUID appears
+							let foundPrefabLink = false;
+							try {
+								const prefabContent = await fs.readFile(prefabFilePath, 'utf8');
+								const prefabLines = prefabContent.split('\n');
+								
+								for (let prefabLineNum = 0; prefabLineNum < prefabLines.length; prefabLineNum++) {
+									if (prefabLines[prefabLineNum].includes(uuid)) {
+										// Create a link with line number fragment
+										const linkUri = prefabFileUri.with({ fragment: `L${prefabLineNum + 1}` });
+										links.push(new vscode.DocumentLink(range, linkUri));
+										foundPrefabLink = true;
+										break;
+									}
+								}
+								
+								if (!foundPrefabLink) {
+									// Just link to the file without line number
+									links.push(new vscode.DocumentLink(range, prefabFileUri));
+									foundPrefabLink = true;
+								}
+							} catch (e) {
+								// Failed to read prefab file, just link to it
+								links.push(new vscode.DocumentLink(range, prefabFileUri));
+								foundPrefabLink = true;
+							}
+							
+							if (foundPrefabLink) {
+								continue; // Skip other checks for this UUID
+							}
+						}
+					}
+
 					// Check meta files first (prefer global references)
 					if (uuidToFileMap[uuid]) {
 						const foundUri = vscode.Uri.file(uuidToFileMap[uuid]);
@@ -1118,6 +1295,117 @@ function activate(context) {
 			const isZeroUuid = /^0+$/.test(uuid);
 			if (isZeroUuid) {
 				return null;
+			}
+
+			// Check if UUID is wrapped in brackets (might be referencing entity in a prefab)
+			const line = document.lineAt(position.line);
+			const lineText = line.text;
+			const isWrappedInBrackets = range.start.character > 0 && 
+				lineText[range.start.character - 1] === '[' && 
+				lineText[range.end.character] === ']';
+			
+			if (isWrappedInBrackets) {
+				// Calculate current line's indentation
+				const currentIndentMatch = lineText.match(/^(\s*)/);
+				const currentIndentation = currentIndentMatch ? currentIndentMatch[1].length : 0;
+				
+				// Look backwards for an ancestor line with less indentation that has a prefab UUID
+				let prefabUuid = null;
+				for (let searchLineNum = position.line - 1; searchLineNum >= 0; searchLineNum--) {
+					const searchLine = document.lineAt(searchLineNum);
+					const searchText = searchLine.text;
+					
+					// Calculate indentation
+					const searchIndentMatch = searchText.match(/^(\s*)/);
+					const searchIndentation = searchIndentMatch ? searchIndentMatch[1].length : 0;
+					
+					// Only check lines with less indentation (ancestor lines)
+					if (searchIndentation < currentIndentation) {
+						// Pattern 1: something: UUID [PrefabUUID] (exact UUID match)
+						const prefabPattern1 = new RegExp(`:\\s*${uuid}\\s+\\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\\]`);
+						const prefabMatch1 = searchText.match(prefabPattern1);
+						
+						if (prefabMatch1) {
+							prefabUuid = prefabMatch1[1];
+							break;
+						}
+						
+						// Pattern 2: something: [PrefabUUID] (ancestor has prefab reference)
+						const prefabPattern2 = /:\s*\[?([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]?$/;
+						const prefabMatch2 = searchText.match(prefabPattern2);
+						
+						if (prefabMatch2) {
+							const potentialPrefabUuid = prefabMatch2[1];
+							
+							// First build the UUID map to check if it's a prefab
+							const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
+							let mintyMetaFiles = [];
+							const mintyPath = process.env.MINTY_PATH;
+							if (mintyPath) {
+								const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
+								try {
+									const mintyDataMetaFiles = await vscode.workspace.findFiles(
+										new vscode.RelativePattern(mintyDataUri, '**/*.meta')
+									);
+									mintyMetaFiles = mintyDataMetaFiles;
+								} catch (e) {
+									console.error('Error searching for meta files in MINTY_PATH/Data:', e);
+								}
+							}
+							const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
+							const uuidToFileMap = {};
+							for (const metaFileUri of metaFiles) {
+								try {
+									const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
+									const match = content.match(META_UUID_REGEX);
+									if (match) {
+										const foundUuid = match[1];
+										const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
+										uuidToFileMap[foundUuid] = filePath;
+									}
+								} catch (e) {
+									console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
+								}
+							}
+							
+							// Check if this UUID is in our map (it's a prefab)
+							if (uuidToFileMap[potentialPrefabUuid]) {
+								prefabUuid = potentialPrefabUuid;
+								
+								// Get the prefab file path
+								const prefabFilePath = uuidToFileMap[prefabUuid];
+								
+								try {
+									// Read the prefab file
+									const prefabContent = await fs.readFile(prefabFilePath, 'utf8');
+									const prefabLines = prefabContent.split('\n');
+									
+									// Search for the UUID in the prefab file
+									for (const prefabLine of prefabLines) {
+										if (prefabLine.includes(uuid)) {
+											// Extract label before the UUID
+											const uuidIndex = prefabLine.indexOf(uuid);
+											const beforeUuid = prefabLine.substring(0, uuidIndex).trim();
+											let label = beforeUuid.replace(/[:\-]\s*$/, '').trim();
+											
+											if (label) {
+												const hoverMessage = new vscode.MarkdownString();
+												hoverMessage.appendCodeblock(uuid, 'text');
+												hoverMessage.appendMarkdown(`**Prefab entity:** ${label}`);
+												return new vscode.Hover(hoverMessage, range);
+											}
+										}
+									}
+								} catch (e) {
+									// Failed to read prefab file
+									console.error(`Error reading prefab file ${prefabFilePath}:`, e);
+								}
+								
+								break;
+							}
+						}
+					}
+				}
 			}
 
 			// Get all meta files in workspace and in $(MINTY_PATH)/Data/ (check global first)

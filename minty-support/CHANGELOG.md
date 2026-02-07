@@ -1,9 +1,12 @@
 # Change Log
 
+## 1.4.4
+- Change decorations so they appear after prefab syntax, if any.
+- Prefab UUIDs (within square brackets) will now link to the element that holds that UUID within the corresponding prefab.
+
 ## 1.4.3
 - Fix UUIDs when there is multiple global UUID references.
 - UUIDs with a value of zero will not use document links, references, etc.
-- 
 
 ## 1.4.2
 - Fix README screenshot.
