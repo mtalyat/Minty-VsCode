@@ -216,33 +216,15 @@ function activate(context) {
 				const start = match.index;
 				const end = start + uuid.length;
 
+				// Check if UUID is all zeros (treat as default, no references)
+				const isZeroUuid = /^0+$/.test(uuid);
+
 				let hintText = '';
 				let isLocal = false;
 				let isGlobal = false;
 
-				// Check for local references first
-				const occurrences = uuidOccurrences[uuid];
-				if (occurrences && occurrences.length > 1) {
-					// Find the occurrence with the lowest indentation
-					const minIndentation = Math.min(...occurrences.map(o => o.indentation));
-					const targetOccurrence = occurrences.find(o => o.indentation === minIndentation);
-					
-					const isTargetOccurrence = targetOccurrence.lineNum === lineNum && targetOccurrence.start === start;
-
-					if (!isTargetOccurrence) {
-						// Extract label from target occurrence
-						const beforeUuid = targetOccurrence.lineText.substring(0, targetOccurrence.start).trim();
-						let label = beforeUuid.replace(/[:\-]\s*$/, '').trim();
-						if (label) {
-							hintText = `→ ${label}`;
-						}
-					}
-					
-					isLocal = true;
-				}
-
-				// Check external files if no local reference
-				if (!hintText && uuidToFileMap[uuid]) {
+				// Check external files first (prefer global references)
+				if (!isZeroUuid && uuidToFileMap[uuid]) {
 					const filePath = uuidToFileMap[uuid];
 					let displayPath = path.basename(filePath);
 					
@@ -256,6 +238,27 @@ function activate(context) {
 					
 					hintText = `→ ${displayPath}`;
 					isGlobal = true;
+				} else if (!isZeroUuid) {
+					// Check for local references only if no global reference found
+					const occurrences = uuidOccurrences[uuid];
+					if (occurrences && occurrences.length > 1) {
+						// Find the occurrence with the lowest indentation
+						const minIndentation = Math.min(...occurrences.map(o => o.indentation));
+						const targetOccurrence = occurrences.find(o => o.indentation === minIndentation);
+						
+						const isTargetOccurrence = targetOccurrence.lineNum === lineNum && targetOccurrence.start === start;
+
+						if (!isTargetOccurrence) {
+							// Extract label from target occurrence
+							const beforeUuid = targetOccurrence.lineText.substring(0, targetOccurrence.start).trim();
+							let label = beforeUuid.replace(/[:\-]\s*$/, '').trim();
+							if (label) {
+								hintText = `→ ${label}`;
+							}
+						}
+						
+						isLocal = true;
+					}
 				}
 
 				// Add color decoration for the UUID itself
@@ -1029,36 +1032,41 @@ function activate(context) {
 					const start = match.index;
 					const end = start + uuid.length;
 
+					// Skip zero UUIDs (no links for all-zero UUIDs)
+					const isZeroUuid = /^0+$/.test(uuid);
+					if (isZeroUuid) {
+						continue;
+					}
+
 					const range = new vscode.Range(
 						new vscode.Position(lineNum, start),
 						new vscode.Position(lineNum, end)
 					);
 
-					// Check if this UUID appears multiple times in the document
-					const occurrences = uuidOccurrences[uuid];
-					if (occurrences && occurrences.length > 1) {
-						// Find the occurrence with the lowest indentation
-						const minIndentation = Math.min(...occurrences.map(o => o.indentation));
-						const targetOccurrence = occurrences.find(o => o.indentation === minIndentation);
-						
-						const isTargetOccurrence = targetOccurrence.lineNum === lineNum && targetOccurrence.start === start;
-
-						if (!isTargetOccurrence) {
-							// This is not the target occurrence, link to the lowest indented occurrence
-							const targetPosition = new vscode.Position(targetOccurrence.lineNum, targetOccurrence.start);
-							const targetUri = document.uri.with({ fragment: `L${targetOccurrence.lineNum + 1}` });
-							links.push(new vscode.DocumentLink(range, targetUri));
-							continue; // Skip checking meta files
-						}
-					}
-
-					// Search meta files for this UUID (only for first occurrence or unique UUIDs)
+					// Check meta files first (prefer global references)
 					if (uuidToFileMap[uuid]) {
 						const foundUri = vscode.Uri.file(uuidToFileMap[uuid]);
 
 						// remove '.meta' from the file path
 						const baseFileUri = foundUri.with({ path: foundUri.path.replace(/\.meta$/, '') });
 						links.push(new vscode.DocumentLink(range, baseFileUri));
+					} else {
+						// Check if this UUID appears multiple times in the document (only if no global reference)
+						const occurrences = uuidOccurrences[uuid];
+						if (occurrences && occurrences.length > 1) {
+							// Find the occurrence with the lowest indentation
+							const minIndentation = Math.min(...occurrences.map(o => o.indentation));
+							const targetOccurrence = occurrences.find(o => o.indentation === minIndentation);
+							
+							const isTargetOccurrence = targetOccurrence.lineNum === lineNum && targetOccurrence.start === start;
+
+							if (!isTargetOccurrence) {
+								// This is not the target occurrence, link to the lowest indented occurrence
+								const targetPosition = new vscode.Position(targetOccurrence.lineNum, targetOccurrence.start);
+								const targetUri = document.uri.with({ fragment: `L${targetOccurrence.lineNum + 1}` });
+								links.push(new vscode.DocumentLink(range, targetUri));
+							}
+						}
 					}
 				}
 
@@ -1106,7 +1114,76 @@ function activate(context) {
 
 			const uuid = document.getText(range);
 
-			// First, check for local references in the document
+			// Skip zero UUIDs (no hover for all-zero UUIDs)
+			const isZeroUuid = /^0+$/.test(uuid);
+			if (isZeroUuid) {
+				return null;
+			}
+
+			// Get all meta files in workspace and in $(MINTY_PATH)/Data/ (check global first)
+			const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
+
+			let mintyMetaFiles = [];
+			const mintyPath = process.env.MINTY_PATH;
+			if (mintyPath) {
+				const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
+				try {
+					const mintyDataMetaFiles = await vscode.workspace.findFiles(
+						new vscode.RelativePattern(mintyDataUri, '**/*.meta')
+					);
+					mintyMetaFiles = mintyDataMetaFiles;
+				} catch (e) {
+					console.error('Error searching for meta files in MINTY_PATH/Data:', e);
+				}
+			}
+
+			const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
+
+			// Build a map: UUID -> file path
+			const uuidToFileMap = {};
+			for (const metaFileUri of metaFiles) {
+				try {
+					const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
+					const match = content.match(META_UUID_REGEX);
+					if (match) {
+						const foundUuid = match[1];
+						const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
+						uuidToFileMap[foundUuid] = filePath;
+					}
+				} catch (e) {
+					console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
+				}
+			}
+
+			// Look up the UUID in meta files (prefer global references)
+			if (uuidToFileMap[uuid]) {
+				const filePath = uuidToFileMap[uuid];
+				
+				// Get relative path for display
+				const workspaceFolders = vscode.workspace.workspaceFolders || [];
+				let displayPath = filePath;
+				
+				if (workspaceFolders.length > 0) {
+					const workspaceRoot = workspaceFolders[0].uri.fsPath;
+					if (filePath.startsWith(workspaceRoot)) {
+						displayPath = path.relative(workspaceRoot, filePath).replace(/\\/g, '/');
+					}
+				}
+				
+				// If it's from MINTY_PATH, show it relative to Data folder
+				if (mintyPath && filePath.startsWith(path.join(mintyPath, 'Data'))) {
+					const dataDir = path.join(mintyPath, 'Data');
+					displayPath = `[Minty] ${path.relative(dataDir, filePath).replace(/\\/g, '/')}`;
+				}
+
+				const hoverMessage = new vscode.MarkdownString();
+				hoverMessage.appendCodeblock(uuid, 'text');
+				hoverMessage.appendMarkdown(`**Global reference to:** ${displayPath}`);
+				
+				return new vscode.Hover(hoverMessage, range);
+			}
+
+			// Check for local references only if no global reference found
 			const uuidOccurrences = [];
 			for (let lineNum = 0; lineNum < document.lineCount; lineNum++) {
 				const line = document.lineAt(lineNum);
@@ -1145,69 +1222,6 @@ function activate(context) {
 				} else {
 					hoverMessage.appendMarkdown(`**Local reference** (line ${firstOccurrence.lineNum + 1})`);
 				}
-				
-				return new vscode.Hover(hoverMessage, range);
-			}
-
-			// Get all meta files in workspace and in $(MINTY_PATH)/Data/
-			const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
-
-			let mintyMetaFiles = [];
-			const mintyPath = process.env.MINTY_PATH;
-			if (mintyPath) {
-				const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
-				try {
-					const mintyDataMetaFiles = await vscode.workspace.findFiles(
-						new vscode.RelativePattern(mintyDataUri, '**/*.meta')
-					);
-					mintyMetaFiles = mintyDataMetaFiles;
-				} catch (e) {
-					console.error('Error searching for meta files in MINTY_PATH/Data:', e);
-				}
-			}
-
-			const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
-
-			// Build a map: UUID -> file path
-			const uuidToFileMap = {};
-			for (const metaFileUri of metaFiles) {
-				try {
-					const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-					const match = content.match(META_UUID_REGEX);
-					if (match) {
-						const foundUuid = match[1];
-						const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
-						uuidToFileMap[foundUuid] = filePath;
-					}
-				} catch (e) {
-					console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
-				}
-			}
-
-			// Look up the UUID in meta files
-			if (uuidToFileMap[uuid]) {
-				const filePath = uuidToFileMap[uuid];
-				
-				// Get relative path for display
-				const workspaceFolders = vscode.workspace.workspaceFolders || [];
-				let displayPath = filePath;
-				
-				if (workspaceFolders.length > 0) {
-					const workspaceRoot = workspaceFolders[0].uri.fsPath;
-					if (filePath.startsWith(workspaceRoot)) {
-						displayPath = path.relative(workspaceRoot, filePath).replace(/\\/g, '/');
-					}
-				}
-				
-				// If it's from MINTY_PATH, show it relative to Data folder
-				if (mintyPath && filePath.startsWith(path.join(mintyPath, 'Data'))) {
-					const dataDir = path.join(mintyPath, 'Data');
-					displayPath = `[Minty] ${path.relative(dataDir, filePath).replace(/\\/g, '/')}`;
-				}
-
-				const hoverMessage = new vscode.MarkdownString();
-				hoverMessage.appendCodeblock(uuid, 'text');
-				hoverMessage.appendMarkdown(`**Global reference to:** ${displayPath}`);
 				
 				return new vscode.Hover(hoverMessage, range);
 			}

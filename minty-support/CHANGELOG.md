@@ -1,6 +1,11 @@
 # Change Log
 
-## 1.4.1
+## 1.4.3
+- Fix UUIDs when there is multiple global UUID references.
+- UUIDs with a value of zero will not use document links, references, etc.
+- 
+
+## 1.4.2
 - Fix README screenshot.
 - Finding asset paths will now omit the initial "Game" or "Project", if any.
 
