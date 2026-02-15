@@ -1,5 +1,10 @@
 # Change Log
 
+## 1.4.5
+- Fix prefab decorations.
+- Fix color of local UUIDs.
+- Added local and relevant prefab UUIDs to the UUID search.
+
 ## 1.4.4
 - Change decorations so they appear after prefab syntax, if any.
 - Prefab UUIDs (within square brackets) will now link to the element that holds that UUID within the corresponding prefab.

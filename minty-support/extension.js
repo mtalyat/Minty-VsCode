@@ -253,12 +253,25 @@ function activate(context) {
 							break;
 						}
 						
-						// Pattern 2: something: [PrefabUUID] (ancestor has prefab reference)
-						const prefabPattern2 = /:\s*\[?([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]?$/;
+						// Pattern 2: [PrefabUUID] at end of line (handles "UUID [PrefabUUID]" format)
+						const prefabPattern2 = /\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]\s*$/;
 						const prefabMatch2 = searchText.match(prefabPattern2);
 						
 						if (prefabMatch2) {
 							const potentialPrefabUuid = prefabMatch2[1];
+							// Check if this UUID is in our map (it's a prefab)
+							if (uuidToFileMap[potentialPrefabUuid]) {
+								prefabUuid = potentialPrefabUuid;
+								break;
+							}
+						}
+						
+						// Pattern 3: something: [PrefabUUID] (ancestor has prefab reference directly after colon)
+						const prefabPattern3 = /:\s*\[?([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]?$/;
+						const prefabMatch3 = searchText.match(prefabPattern3);
+						
+						if (prefabMatch3) {
+							const potentialPrefabUuid = prefabMatch3[1];
 							// Check if this UUID is in our map (it's a prefab)
 							if (uuidToFileMap[potentialPrefabUuid]) {
 								prefabUuid = potentialPrefabUuid;
@@ -335,9 +348,10 @@ function activate(context) {
 							if (label) {
 								hintText = `→ ${label}`;
 							}
+							
+							// Only mark as local if this is a reference (not the first definition)
+							isLocal = true;
 						}
-						
-						isLocal = true;
 					}
 				}
 
@@ -826,6 +840,22 @@ function activate(context) {
 			return;
 		}
 
+		// Build a map: UUID -> file path for prefab lookups
+		const uuidToFileMap = {};
+		for (const metaFileUri of metaFiles) {
+			try {
+				const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
+				const match = content.match(META_UUID_REGEX);
+				if (match) {
+					const uuid = match[1];
+					const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
+					uuidToFileMap[uuid] = filePath;
+				}
+			} catch (e) {
+				console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
+			}
+		}
+
 		// Build a list of assets with their UUIDs for the quick pick
 		const assetItems = [];
 		for (const metaFileUri of metaFiles) {
@@ -862,6 +892,125 @@ function activate(context) {
 				}
 			} catch (e) {
 				console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
+			}
+		}
+
+		// Check if current file is a minty file and extract local UUIDs and prefab references
+		const editor = vscode.window.activeTextEditor;
+		if (editor && editor.document.languageId === 'minty') {
+			const document = editor.document;
+			const localUUIDs = new Map(); // uuid -> {label, indentation}
+			const prefabUUIDs = new Set();
+
+			// First pass: collect all UUID occurrences
+			for (let lineNum = 0; lineNum < document.lineCount; lineNum++) {
+				const line = document.lineAt(lineNum);
+				const lineText = line.text;
+
+				const indentMatch = lineText.match(/^(\s*)/);
+				const indentation = indentMatch ? indentMatch[1].length : 0;
+
+				const uuidRegex = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+				let match;
+				while ((match = uuidRegex.exec(lineText)) !== null) {
+					const uuid = match[0];
+					const isZeroUuid = /^0+$/.test(uuid);
+					if (isZeroUuid) continue;
+
+					// Check if UUID is wrapped in brackets [UUID] - these are prefab entity references
+					const isWrappedInBrackets = match.index > 0 && 
+						lineText[match.index - 1] === '[' && 
+						lineText[match.index + uuid.length] === ']';
+					
+					// Check if it's a prefab reference pattern: UUID [PrefabUUID]
+					const prefabPattern = new RegExp(`${uuid}\\s+\\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\\]`);
+					const prefabMatch = lineText.match(prefabPattern);
+					if (prefabMatch) {
+						prefabUUIDs.add(prefabMatch[1]);
+					}
+
+					// Skip if this UUID is wrapped in brackets (prefab entity reference)
+					if (isWrappedInBrackets) continue;
+
+					// Skip if this UUID is in the global assets
+					if (uuidToFileMap[uuid]) continue;
+
+					// Extract label before the UUID
+					const beforeUuid = lineText.substring(0, match.index).trim();
+					let label = beforeUuid.replace(/[:\-]\s*$/, '').trim();
+
+					// Only add if we don't have this UUID yet, or this has lower indentation
+					if (!localUUIDs.has(uuid) || indentation < localUUIDs.get(uuid).indentation) {
+						localUUIDs.set(uuid, { label, indentation });
+					}
+				}
+			}
+
+			// Add local UUIDs to the asset items
+			for (const [uuid, info] of localUUIDs) {
+				let displayLabel = info.label || 'Unnamed';
+				assetItems.unshift({
+					label: `[Local] ${displayLabel}`,
+					description: uuid,
+					uuid: uuid,
+					assetPath: null
+				});
+			}
+
+			// Add prefab UUIDs
+			for (const prefabUuid of prefabUUIDs) {
+				if (uuidToFileMap[prefabUuid]) {
+					const prefabFilePath = uuidToFileMap[prefabUuid];
+					
+					try {
+						const prefabContent = await fs.readFile(prefabFilePath, 'utf8');
+						const prefabLines = prefabContent.split('\n');
+						const prefabLocalUUIDs = new Map();
+
+						// Extract UUIDs from the prefab file
+						for (const prefabLine of prefabLines) {
+							const uuidRegex = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+							let match;
+							while ((match = uuidRegex.exec(prefabLine)) !== null) {
+								const uuid = match[0];
+								const isZeroUuid = /^0+$/.test(uuid);
+								if (isZeroUuid || uuid === prefabUuid) continue;
+
+								// Check if UUID is wrapped in brackets [UUID] - these are entity references
+								const isWrappedInBrackets = match.index > 0 && 
+									prefabLine[match.index - 1] === '[' && 
+									prefabLine[match.index + uuid.length] === ']';
+								
+								// Skip if wrapped in brackets (entity reference)
+								if (isWrappedInBrackets) continue;
+
+								// Skip if already in global assets
+								if (uuidToFileMap[uuid]) continue;
+
+								// Extract label
+								const beforeUuid = prefabLine.substring(0, match.index).trim();
+								let label = beforeUuid.replace(/[:\-]\s*$/, '').trim();
+
+								if (!prefabLocalUUIDs.has(uuid)) {
+									prefabLocalUUIDs.set(uuid, label);
+								}
+							}
+						}
+
+						// Add prefab UUIDs to asset items
+						for (const [uuid, label] of prefabLocalUUIDs) {
+							let displayLabel = label || 'Unnamed';
+							assetItems.unshift({
+								label: `[Prefab ${prefabUuid}] ${displayLabel}`,
+								description: uuid,
+								uuid: uuid,
+								assetPath: null
+							});
+						}
+					} catch (e) {
+						console.error(`Error reading prefab file ${prefabFilePath}:`, e);
+					}
+				}
 			}
 		}
 
@@ -1168,12 +1317,25 @@ function activate(context) {
 									break;
 								}
 								
-								// Pattern 2: something: [PrefabUUID] (ancestor has prefab reference)
-								const prefabPattern2 = /:\s*\[?([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]?$/;
+								// Pattern 2: [PrefabUUID] at end of line (handles "UUID [PrefabUUID]" format)
+								const prefabPattern2 = /\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]\s*$/;
 								const prefabMatch2 = searchText.match(prefabPattern2);
 								
 								if (prefabMatch2) {
 									const potentialPrefabUuid = prefabMatch2[1];
+									// Check if this UUID is in our map (it's a prefab)
+									if (uuidToFileMap[potentialPrefabUuid]) {
+										prefabUuid = potentialPrefabUuid;
+										break;
+									}
+								}
+								
+								// Pattern 3: something: [PrefabUUID] (ancestor has prefab reference directly after colon)
+								const prefabPattern3 = /:\s*\[?([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]?$/;
+								const prefabMatch3 = searchText.match(prefabPattern3);
+								
+								if (prefabMatch3) {
+									const potentialPrefabUuid = prefabMatch3[1];
 									// Check if this UUID is in our map (it's a prefab)
 									if (uuidToFileMap[potentialPrefabUuid]) {
 										prefabUuid = potentialPrefabUuid;
@@ -1330,12 +1492,87 @@ function activate(context) {
 							break;
 						}
 						
-						// Pattern 2: something: [PrefabUUID] (ancestor has prefab reference)
-						const prefabPattern2 = /:\s*\[?([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]?$/;
+						// Pattern 2: [PrefabUUID] at end of line (handles "UUID [PrefabUUID]" format)
+						const prefabPattern2 = /\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]\s*$/;
 						const prefabMatch2 = searchText.match(prefabPattern2);
 						
 						if (prefabMatch2) {
 							const potentialPrefabUuid = prefabMatch2[1];
+							
+							// First build the UUID map to check if it's a prefab
+							const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
+							let mintyMetaFiles = [];
+							const mintyPath = process.env.MINTY_PATH;
+							if (mintyPath) {
+								const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
+								try {
+									const mintyDataMetaFiles = await vscode.workspace.findFiles(
+										new vscode.RelativePattern(mintyDataUri, '**/*.meta')
+									);
+									mintyMetaFiles = mintyDataMetaFiles;
+								} catch (e) {
+									console.error('Error searching for meta files in MINTY_PATH/Data:', e);
+								}
+							}
+							const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
+							const uuidToFileMap = {};
+							for (const metaFileUri of metaFiles) {
+								try {
+									const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
+									const match = content.match(META_UUID_REGEX);
+									if (match) {
+										const foundUuid = match[1];
+										const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
+										uuidToFileMap[foundUuid] = filePath;
+									}
+								} catch (e) {
+									console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
+								}
+							}
+							
+							// Check if this UUID is in our map (it's a prefab)
+							if (uuidToFileMap[potentialPrefabUuid]) {
+								prefabUuid = potentialPrefabUuid;
+								
+								// Get the prefab file path
+								const prefabFilePath = uuidToFileMap[prefabUuid];
+								
+								try {
+									// Read the prefab file
+									const prefabContent = await fs.readFile(prefabFilePath, 'utf8');
+									const prefabLines = prefabContent.split('\n');
+									
+									// Search for the UUID in the prefab file
+									for (const prefabLine of prefabLines) {
+										if (prefabLine.includes(uuid)) {
+											// Extract label before the UUID
+											const uuidIndex = prefabLine.indexOf(uuid);
+											const beforeUuid = prefabLine.substring(0, uuidIndex).trim();
+											let label = beforeUuid.replace(/[:\-]\s*$/, '').trim();
+											
+											if (label) {
+												const hoverMessage = new vscode.MarkdownString();
+												hoverMessage.appendCodeblock(uuid, 'text');
+												hoverMessage.appendMarkdown(`**Prefab entity:** ${label}`);
+												return new vscode.Hover(hoverMessage, range);
+											}
+										}
+									}
+								} catch (e) {
+									// Failed to read prefab file
+									console.error(`Error reading prefab file ${prefabFilePath}:`, e);
+								}
+								
+								break;
+							}
+						}
+						
+						// Pattern 3: something: [PrefabUUID] (ancestor has prefab reference directly after colon)
+						const prefabPattern3 = /:\s*\[?([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]?$/;
+						const prefabMatch3 = searchText.match(prefabPattern3);
+						
+						if (prefabMatch3) {
+							const potentialPrefabUuid = prefabMatch3[1];
 							
 							// First build the UUID map to check if it's a prefab
 							const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
