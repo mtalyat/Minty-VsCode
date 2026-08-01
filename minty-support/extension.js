@@ -1,19 +1,15 @@
-// The module 'vscode' contains the VS Code extensibility API
+﻿// The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 const vscode = require('vscode');
 const fs = require('fs').promises;
 const path = require('path');
 
 const PATH_REGEX = /(([\w\.\-]+\/)+[\w\.\-]*)/g;
-const UUID_REGEX = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
-const META_UUID_REGEX = /: ([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)/;
+const UUID_REGEX = /\b[a-fA-F0-9]{32}\b/g;
+const META_UUID_REGEX = /^[^\r\n]*\b([a-fA-F0-9]{32})\b/;
 
 function generateUUID() {
 	return [...Array(32)].map(() => Math.floor(Math.random() * 16).toString(16).toUpperCase()).join('');
-}
-
-function generateShortUUID() {
-	return [...Array(16)].map(() => Math.floor(Math.random() * 16).toString(16).toUpperCase()).join('');
 }
 
 function openURL(path) {
@@ -30,15 +26,179 @@ function openDirectory(uri) {
 	vscode.commands.executeCommand('vscode.openFolder', folderUri, { forceNewWindow: true });
 }
 
+function normalizePath(value) {
+	return value.replace(/\\/g, '/');
+}
+
+function getMintyPath() {
+	return process.env.MINTY_PATH || '';
+}
+
+function getMintyDataPath() {
+	const mintyPath = getMintyPath();
+	return mintyPath ? path.join(mintyPath, 'Data') : '';
+}
+
+function getMintyDataUri() {
+	const mintyDataPath = getMintyDataPath();
+	return mintyDataPath ? vscode.Uri.file(mintyDataPath) : null;
+}
+
+async function getWorkspaceRootPath() {
+	const workspaceFolders = vscode.workspace.workspaceFolders || [];
+	return workspaceFolders.length > 0 ? workspaceFolders[0].uri.fsPath : '';
+}
+
+async function getWorkspaceBaseDir(workspaceRoot) {
+	if (!workspaceRoot) {
+		return '';
+	}
+
+	const candidateNames = ['Game', 'Project'];
+	for (const name of candidateNames) {
+		const candidatePath = path.join(workspaceRoot, name);
+		try {
+			const stat = await vscode.workspace.fs.stat(vscode.Uri.file(candidatePath));
+			if (stat.type === vscode.FileType.Directory) {
+				return candidatePath;
+			}
+		} catch {
+			// Continue checking other candidates.
+		}
+	}
+
+	return workspaceRoot;
+}
+
+async function getTemplateFolderUri(envPath) {
+	const templateFolders = ['Template', 'Templates'];
+
+	for (const folderName of templateFolders) {
+		const folderUri = vscode.Uri.joinPath(vscode.Uri.file(envPath), 'Data', folderName);
+		try {
+			const stat = await vscode.workspace.fs.stat(folderUri);
+			if (stat.type === vscode.FileType.Directory) {
+				return folderUri;
+			}
+		} catch {
+			// Continue checking other candidate directories.
+		}
+	}
+
+	return null;
+}
+
+function getDisplayPath(filePath, workspaceRoot, mintyDataPath) {
+	if (workspaceRoot && filePath.startsWith(workspaceRoot)) {
+		return normalizePath(path.relative(workspaceRoot, filePath));
+	}
+
+	if (mintyDataPath && filePath.startsWith(mintyDataPath)) {
+		return `[Minty] ${normalizePath(path.relative(mintyDataPath, filePath))}`;
+	}
+
+	return filePath;
+}
+
+function getCopyPath(filePath, workspaceRoot, mintyDataPath) {
+	let copyPath = filePath;
+
+	if (workspaceRoot && filePath.startsWith(workspaceRoot)) {
+		copyPath = normalizePath(path.relative(workspaceRoot, filePath));
+	} else if (mintyDataPath && filePath.startsWith(mintyDataPath)) {
+		copyPath = normalizePath(path.relative(mintyDataPath, filePath));
+	}
+
+	if (copyPath.startsWith('Game/')) {
+		return copyPath.substring(5);
+	}
+
+	if (copyPath.startsWith('Project/')) {
+		return copyPath.substring(8);
+	}
+
+	return copyPath;
+}
+
+async function getMintyFiles() {
+	const workspaceMintyFiles = await vscode.workspace.findFiles('**/*.minty');
+	const mintyFiles = [...workspaceMintyFiles];
+
+	const mintyDataUri = getMintyDataUri();
+	if (mintyDataUri) {
+		try {
+			const externalMintyFiles = await vscode.workspace.findFiles(
+				new vscode.RelativePattern(mintyDataUri, '**/*.minty')
+			);
+			mintyFiles.push(...externalMintyFiles);
+		} catch (e) {
+			console.error('Error searching for Minty files in MINTY_PATH/Data:', e);
+		}
+	}
+
+	const uniqueFiles = [];
+	const seen = new Set();
+	for (const fileUri of mintyFiles) {
+		if (!seen.has(fileUri.fsPath)) {
+			seen.add(fileUri.fsPath);
+			uniqueFiles.push(fileUri);
+		}
+	}
+
+	return uniqueFiles;
+}
+
+async function buildUuidToFileMap(mintyFiles) {
+	const uuidToFileMap = {};
+
+	for (const fileUri of mintyFiles) {
+		try {
+			const content = await fs.readFile(fileUri.fsPath, 'utf8');
+			const match = content.match(META_UUID_REGEX);
+			if (match) {
+				uuidToFileMap[match[1]] = fileUri.fsPath;
+			}
+		} catch (e) {
+			console.error(`Error reading Minty file ${fileUri.fsPath}:`, e);
+		}
+	}
+
+	return uuidToFileMap;
+}
+
+async function getLookupContext() {
+	const workspaceRoot = await getWorkspaceRootPath();
+	const baseDir = await getWorkspaceBaseDir(workspaceRoot);
+	const mintyPath = getMintyPath();
+	const mintyDataPath = getMintyDataPath();
+	const mintyFiles = await getMintyFiles();
+	const uuidToFileMap = await buildUuidToFileMap(mintyFiles);
+
+	return {
+		workspaceRoot,
+		baseDir,
+		mintyPath,
+		mintyDataPath,
+		mintyFiles,
+		uuidToFileMap
+	};
+}
+
 async function getTemplateFiles() {
-	const envPath = process.env.MINTY_PATH;
+	const envPath = getMintyPath();
 
 	if (!envPath) {
 		vscode.window.showErrorMessage('MINTY_PATH environment variable is not set.');
 		return null;
 	}
 
-	const metaFileUri = vscode.Uri.joinPath(vscode.Uri.file(envPath), 'Data', 'Templates', '.meta');
+	const templateFolderUri = await getTemplateFolderUri(envPath);
+	if (!templateFolderUri) {
+		vscode.window.showErrorMessage('Failed to find Minty template directory in MINTY_PATH/Data.');
+		return null;
+	}
+
+	const metaFileUri = vscode.Uri.joinPath(templateFolderUri, '.meta');
 
 	try {
 		const fileData = await vscode.workspace.fs.readFile(metaFileUri);
@@ -57,11 +217,9 @@ async function getTemplateFiles() {
 		vscode.window.showWarningMessage(`Failed to read Minty templates .meta file at ${metaFileUri.toString()}: ${err.message}`);
 	}
 
-	const folderUri = vscode.Uri.joinPath(vscode.Uri.file(envPath), 'Data', 'Templates');
-
 	// If the .meta file doesn't exist, get the raw file names
 	try {
-		const entries = await vscode.workspace.fs.readDirectory(folderUri);
+		const entries = await vscode.workspace.fs.readDirectory(templateFolderUri);
 
 		const files = entries
 			.filter(([name, type]) => type === vscode.FileType.File && !name.endsWith('.meta'))
@@ -69,7 +227,7 @@ async function getTemplateFiles() {
 
 		return files;
 	} catch (err) {
-		vscode.window.showErrorMessage(`Failed to find Minty templates directory at ${folderUri.toString()}: ${err.message}`);
+		vscode.window.showErrorMessage(`Failed to read Minty templates directory at ${templateFolderUri.toString()}: ${err.message}`);
 		return null;
 	}
 }
@@ -125,7 +283,7 @@ function activate(context) {
 			const indentMatch = lineText.match(/^(\s*)/);
 			const indentation = indentMatch ? indentMatch[1].length : 0;
 
-			const uuidRegex = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+			const uuidRegex = /\b[a-fA-F0-9]{32}\b/g;
 			let match;
 			while ((match = uuidRegex.exec(lineText)) !== null) {
 				const uuid = match[0];
@@ -142,63 +300,11 @@ function activate(context) {
 			}
 		}
 
-		// Get all meta files for external lookups
-		const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
-		let mintyMetaFiles = [];
-		const mintyPath = process.env.MINTY_PATH;
-		if (mintyPath) {
-			const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
-			try {
-				const mintyDataMetaFiles = await vscode.workspace.findFiles(
-					new vscode.RelativePattern(mintyDataUri, '**/*.meta')
-				);
-				mintyMetaFiles = mintyDataMetaFiles;
-			} catch (e) {
-				console.error('Error searching for meta files:', e);
-			}
-		}
-
-		const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
-		const uuidToFileMap = {};
-		for (const metaFileUri of metaFiles) {
-			try {
-				const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-				const match = content.match(META_UUID_REGEX);
-				if (match) {
-					const foundUuid = match[1];
-					const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
-					uuidToFileMap[foundUuid] = filePath;
-				}
-			} catch (e) {
-				console.error(`Error reading meta file:`, e);
-			}
-		}
-
-		// Find Game or Project directory
-		const workspaceFolders = vscode.workspace.workspaceFolders || [];
-		let workspaceRoot = workspaceFolders.length > 0 ? workspaceFolders[0].uri.fsPath : '';
-		let baseDir = workspaceRoot;
-		
-		if (workspaceRoot) {
-			const gameDir = path.join(workspaceRoot, 'Game');
-			const projectDir = path.join(workspaceRoot, 'Project');
-			
-			try {
-				const gameStat = await vscode.workspace.fs.stat(vscode.Uri.file(gameDir));
-				if (gameStat.type === vscode.FileType.Directory) {
-					baseDir = gameDir;
-				}
-			} catch (e) {
-				try {
-					const projectStat = await vscode.workspace.fs.stat(vscode.Uri.file(projectDir));
-					if (projectStat.type === vscode.FileType.Directory) {
-						baseDir = projectDir;
-					}
-				} catch (e) {
-					// Use workspace root
-				}
-			}
-		}
+		const {
+			uuidToFileMap,
+			baseDir,
+			mintyDataPath
+		} = await getLookupContext();
 
 		// Process each UUID occurrence
 		const defaultUuidDecorations = [];
@@ -209,7 +315,7 @@ function activate(context) {
 			const line = document.lineAt(lineNum);
 			const lineText = line.text;
 
-			const uuidRegex = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+			const uuidRegex = /\b[a-fA-F0-9]{32}\b/g;
 			let match;
 			while ((match = uuidRegex.exec(lineText)) !== null) {
 				const uuid = match[0];
@@ -245,7 +351,7 @@ function activate(context) {
 					// Only check lines with less indentation (ancestor lines)
 					if (searchIndentation < currentIndentation) {
 						// Pattern 1: something: UUID [PrefabUUID] (exact UUID match)
-						const prefabPattern1 = new RegExp(`:\\s*${uuid}\\s+\\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\\]`);
+						const prefabPattern1 = new RegExp(`:\\s*${uuid}\\s+\\[([a-fA-F0-9]{32})\\]`);
 						const prefabMatch1 = searchText.match(prefabPattern1);
 						
 						if (prefabMatch1) {
@@ -254,7 +360,7 @@ function activate(context) {
 						}
 						
 						// Pattern 2: [PrefabUUID] at end of line (handles "UUID [PrefabUUID]" format)
-						const prefabPattern2 = /\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]\s*$/;
+						const prefabPattern2 = /\[([a-fA-F0-9]{32})\]\s*$/;
 						const prefabMatch2 = searchText.match(prefabPattern2);
 						
 						if (prefabMatch2) {
@@ -267,7 +373,7 @@ function activate(context) {
 						}
 						
 						// Pattern 3: something: [PrefabUUID] (ancestor has prefab reference directly after colon)
-						const prefabPattern3 = /:\s*\[?([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]?$/;
+						const prefabPattern3 = /:\s*\[?([a-fA-F0-9]{32})\]?$/;
 						const prefabMatch3 = searchText.match(prefabPattern3);
 						
 						if (prefabMatch3) {
@@ -302,7 +408,7 @@ function activate(context) {
 									let label = beforeUuid.replace(/[:\-]\s*$/, '').trim();
 									
 									if (label) {
-										hintText = `→ ${label}`;
+										hintText = `-> ${label}`;
 										isGlobal = true; // Prefab entities use global color
 										break;
 									}
@@ -323,13 +429,12 @@ function activate(context) {
 					
 					// Get relative path if in workspace
 					if (baseDir && filePath.startsWith(baseDir)) {
-						displayPath = path.relative(baseDir, filePath).replace(/\\/g, '/');
-					} else if (mintyPath && filePath.startsWith(path.join(mintyPath, 'Data'))) {
-						const dataDir = path.join(mintyPath, 'Data');
-						displayPath = path.relative(dataDir, filePath).replace(/\\/g, '/');
+						displayPath = normalizePath(path.relative(baseDir, filePath));
+					} else if (mintyDataPath && filePath.startsWith(mintyDataPath)) {
+						displayPath = normalizePath(path.relative(mintyDataPath, filePath));
 					}
 					
-					hintText = `→ ${displayPath}`;
+					hintText = `-> ${displayPath}`;
 					isGlobal = true;
 				} else if (!isPrefabEntity && !isZeroUuid) {
 					// Check for local references only if no global reference found
@@ -346,7 +451,7 @@ function activate(context) {
 							const beforeUuid = targetOccurrence.lineText.substring(0, targetOccurrence.start).trim();
 							let label = beforeUuid.replace(/[:\-]\s*$/, '').trim();
 							if (label) {
-								hintText = `→ ${label}`;
+								hintText = `-> ${label}`;
 							}
 							
 							// Only mark as local if this is a reference (not the first definition)
@@ -416,31 +521,29 @@ function activate(context) {
 					try {
 						await vscode.workspace.fs.stat(vscode.Uri.file(candidatePath));
 						fullPath = candidatePath;
-					} catch (e) {
+					} catch {
 						// File not found in base dir
 					}
 				}
 
 				// Try minty path
-				if (!fullPath && mintyPath) {
-					const dataDir = path.join(mintyPath, 'Data');
-					const candidatePath = path.join(dataDir, normalizedPath);
+				if (!fullPath && mintyDataPath) {
+					const candidatePath = path.join(mintyDataPath, normalizedPath);
 					try {
 						await vscode.workspace.fs.stat(vscode.Uri.file(candidatePath));
 						fullPath = candidatePath;
-					} catch (e) {
+					} catch {
 						// File not found in minty data
 					}
 				}
 
-				// If we found the file, check for .meta file
+				// If we found the file, check for a first-line UUID.
 				if (fullPath) {
-					const metaPath = `${fullPath}.meta`;
 					try {
-						const metaContent = await fs.readFile(metaPath, 'utf8');
-						const metaMatch = metaContent.match(META_UUID_REGEX);
-						if (metaMatch) {
-							const uuid = metaMatch[1];
+						const fileContent = await fs.readFile(fullPath, 'utf8');
+						const uuidMatch = fileContent.match(META_UUID_REGEX);
+						if (uuidMatch) {
+							const uuid = uuidMatch[1].toUpperCase();
 							
 							// Check if path is wrapped in brackets
 							let decorationPos = end;
@@ -453,13 +556,13 @@ function activate(context) {
 								range,
 								renderOptions: {
 									after: {
-										contentText: `→ ${uuid}`
+										contentText: `-> ${uuid}`
 									}
 								}
 							});
 						}
-					} catch (e) {
-						// No .meta file or error reading it
+					} catch {
+						// No readable UUID in the target file.
 					}
 				}
 			}
@@ -513,71 +616,6 @@ function activate(context) {
 	});
 	context.subscriptions.push(insertUUID);
 
-	const insertNextUUID = vscode.commands.registerCommand('minty-support.insertNextUUID', async function () {
-		const editor = vscode.window.activeTextEditor;
-		if (!editor) {
-			return vscode.window.showErrorMessage('No active editor');
-		}
-
-		const document = editor.document;
-		const text = document.getText();
-
-		// Regex to match 16 hex digits
-		const hexRegex = /\b[0-9a-fA-F]{16}\b/g;
-		const matches = [];
-		let match;
-		while ((match = hexRegex.exec(text)) !== null) {
-			matches.push(match[0]);
-		}
-
-		// Parse as hex numbers
-		const numbers = matches.map(m => parseInt(m, 16)).filter(n => !isNaN(n));
-
-		// Find the next unused number starting from 1
-		let nextNum = 1;
-		while (numbers.includes(nextNum)) {
-			nextNum++;
-		}
-
-		// Format as 16 hex digits uppercase
-		const nextUUID = nextNum.toString(16).toUpperCase().padStart(16, '0');
-
-		editor.edit(editBuilder => {
-			for (const selection of editor.selections) {
-				editBuilder.insert(selection.active, nextUUID);
-			}
-		});
-
-		// Copy to clipboard
-		await vscode.env.clipboard.writeText(nextUUID);
-
-		// Optional: Show confirmation
-		vscode.window.showInformationMessage(`Next UUID inserted and copied to clipboard: ${nextUUID}`);
-	});
-	context.subscriptions.push(insertNextUUID);
-
-	const insertShortUUID = vscode.commands.registerCommand('minty-support.insertShortUUID', async function () {
-		const editor = vscode.window.activeTextEditor;
-		if (!editor) {
-			return vscode.window.showErrorMessage('No active editor');
-		}
-
-		const shortUUID = generateShortUUID();
-
-		editor.edit(editBuilder => {
-			for (const selection of editor.selections) {
-				editBuilder.insert(selection.active, shortUUID);
-			}
-		});
-
-		// Copy to clipboard
-		await vscode.env.clipboard.writeText(shortUUID);
-
-		// Optional: Show confirmation
-		vscode.window.showInformationMessage(`Short UUID inserted and copied to clipboard: ${shortUUID}`);
-	});
-	context.subscriptions.push(insertShortUUID);
-
 	const generateUUIDDisposable = vscode.commands.registerCommand('minty-support.generateUUID', async function () {
 		const uuid = generateUUID();
 
@@ -588,17 +626,6 @@ function activate(context) {
 		vscode.window.showInformationMessage(`UUID copied to clipboard: ${uuid}`);
 	});
 	context.subscriptions.push(generateUUIDDisposable);
-
-	const generateShortUUIDDisposable = vscode.commands.registerCommand('minty-support.generateShortUUID', async function () {
-		const shortUUID = generateShortUUID();
-
-		// Copy to clipboard
-		await vscode.env.clipboard.writeText(shortUUID);
-
-		// Optional: Show confirmation
-		vscode.window.showInformationMessage(`Short UUID copied to clipboard: ${shortUUID}`);
-	});
-	context.subscriptions.push(generateShortUUIDDisposable);
 
 	const openWebsite = vscode.commands.registerCommand('minty-support.openMintyDocs', () => {
 		openURL('https://github.com/mtalyat/Minty/wiki');
@@ -611,7 +638,7 @@ function activate(context) {
 	context.subscriptions.push(openRepo);
 
 	const openDir = vscode.commands.registerCommand('minty-support.openMintyDirectory', () => {
-		const mintyPath = process.env.MINTY_PATH;
+		const mintyPath = getMintyPath();
 		if (!mintyPath) {
 			return vscode.window.showErrorMessage('MINTY_PATH environment variable is not set.');
 		}
@@ -623,13 +650,17 @@ function activate(context) {
 		// 'uri' is the file/folder you right-clicked on in Explorer
 
 		let folderUri;
+		let targetFileUri = null;
+
+		const selectedStat = await vscode.workspace.fs.stat(uri);
 
 		// If right-clicked a folder, use it directly
-		if ((await vscode.workspace.fs.stat(uri)).type === vscode.FileType.Directory) {
+		if (selectedStat.type === vscode.FileType.Directory) {
 			folderUri = uri;
 		} else {
 			// If right-clicked a file, use its parent folder
 			folderUri = uri.with({ path: path.dirname(uri.path) });
+			targetFileUri = uri;
 		}
 
 		// get list of template files
@@ -640,7 +671,7 @@ function activate(context) {
 		}
 
 		// create a list of just the names from the template files tuples
-		const templateFileNames = templateFiles.map(([extension, name]) => name);
+		const templateFileNames = templateFiles.map(([, name]) => name);
 
 		// Show quick pick to select template
 		const selectedTemplate = await vscode.window.showQuickPick(templateFileNames, {
@@ -650,20 +681,22 @@ function activate(context) {
 		if (!selectedTemplate) return;
 
 		// find the extension of the selected template
-		const templateFileTuple = templateFiles.find(([extension, name]) => name === selectedTemplate);
+		const templateFileTuple = templateFiles.find(([, name]) => name === selectedTemplate);
 		if (!templateFileTuple) {
 			vscode.window.showErrorMessage(`Template file for "${selectedTemplate}" not found.`);
 			return;
 		}
 		const selectedTemplateExtension = templateFileTuple[0];
 
+		const mintyPath = getMintyPath();
+		const templateFolderUri = await getTemplateFolderUri(mintyPath);
+		if (!templateFolderUri) {
+			vscode.window.showErrorMessage('Failed to find Minty template directory in MINTY_PATH/Data.');
+			return;
+		}
+
 		// get template file path
-		const templateFilePath = vscode.Uri.joinPath(
-			vscode.Uri.file(process.env.MINTY_PATH),
-			'Data',
-			'Templates',
-			selectedTemplateExtension
-		);
+		const templateFilePath = vscode.Uri.joinPath(templateFolderUri, selectedTemplateExtension);
 
 		// Read the template file
 		let fileData;
@@ -684,22 +717,30 @@ function activate(context) {
 
 		// get file path
 		const filePath = vscode.Uri.joinPath(folderUri, `${fileName}${selectedTemplateExtension}`);
-
-		// get .meta file path
-		const metaPath = `${filePath.path.toString()}.meta`;
-
-		// create the .meta file content
 		const uuid = generateUUID();
-		const metaContent = `: ${uuid}
-`;
 
-		// write the .meta file
-		try {
-			await vscode.workspace.fs.writeFile(vscode.Uri.file(metaPath), Buffer.from(metaContent, 'utf8'));
+		let targetPath = '';
+		let targetUuid = '';
+
+		if (targetFileUri) {
+			const relativeTargetPath = path.relative(folderUri.fsPath, targetFileUri.fsPath).replace(/\\/g, '/');
+			targetPath = relativeTargetPath || path.basename(targetFileUri.fsPath);
+
+			try {
+				const targetContent = (await vscode.workspace.fs.readFile(targetFileUri)).toString();
+				const targetMatch = targetContent.match(META_UUID_REGEX);
+				if (targetMatch) {
+					targetUuid = targetMatch[1].toUpperCase();
+				}
+			} catch {
+				// Leave TARGET_UUID empty when target can't be read.
+			}
 		}
-		catch (err) {
-			vscode.window.showErrorMessage(`Failed to create .meta file: ${err.message}`);
-		}
+
+		fileData = fileData
+			.replace(/\{UUID\}/g, uuid)
+			.replace(/\{TARGET_PATH\}/g, targetPath)
+			.replace(/\{TARGET_UUID\}/g, targetUuid);
 
 		// create the new file with template content
 		try {
@@ -711,80 +752,6 @@ function activate(context) {
 		}
 	});
 	context.subscriptions.push(createFile);
-
-	const createMetaFile = vscode.commands.registerCommand('minty-support.createMetaFile', async (uri, selectedUris) => {
-		// 'uri' is the primary file right-clicked, 'selectedUris' contains all selected files
-		
-		// Get all selected files - if multiple selection, use selectedUris, otherwise use single uri
-		const filesToProcess = selectedUris && selectedUris.length > 0 ? selectedUris : [uri];
-
-		if (!filesToProcess || filesToProcess.length === 0) {
-			vscode.window.showErrorMessage('No files selected.');
-			return;
-		}
-
-		const createdUuids = [];
-		let errorCount = 0;
-
-		for (const fileUri of filesToProcess) {
-			try {
-				// Ensure it's a file, not a folder
-				const stat = await vscode.workspace.fs.stat(fileUri);
-				if (stat.type === vscode.FileType.Directory) {
-					continue; // Skip folders
-				}
-
-				// Skip if this is already a .meta file
-				if (fileUri.path.endsWith('.meta')) {
-					continue;
-				}
-
-				// Create meta file path by adding .meta extension
-				const metaPath = fileUri.with({ path: `${fileUri.path}.meta` });
-
-				// Check if meta file already exists
-				try {
-					await vscode.workspace.fs.stat(metaPath);
-					// If we get here, the file exists, so skip it
-					continue;
-				} catch (err) {
-					// File doesn't exist, proceed with creation
-				}
-
-				// Generate UUID for this file
-				const uuid = generateUUID();
-
-				// Create meta file content
-				const metaContent = `: ${uuid}\n`;
-
-				// Write the .meta file
-				await vscode.workspace.fs.writeFile(metaPath, Buffer.from(metaContent, 'utf8'));
-				
-				createdUuids.push(uuid);
-			} catch (err) {
-				console.error(`Failed to create meta file for ${fileUri.path}: ${err.message}`);
-				errorCount++;
-			}
-		}
-
-		if (createdUuids.length > 0) {
-			// Copy the last UUID to clipboard (or all UUIDs if multiple)
-			const clipboardContent = createdUuids.length === 1 ? createdUuids[0] : createdUuids.join('\n');
-			await vscode.env.clipboard.writeText(clipboardContent);
-
-			// Show confirmation message
-			const message = createdUuids.length === 1 
-				? `Meta file created with UUID copied to clipboard: ${createdUuids[0]}`
-				: `${createdUuids.length} meta files created. UUIDs copied to clipboard.`;
-			
-			vscode.window.showInformationMessage(message);
-		}
-
-		if (errorCount > 0) {
-			vscode.window.showWarningMessage(`${errorCount} files could not be processed (may be folders or errors occurred).`);
-		}
-	});
-	context.subscriptions.push(createMetaFile);
 
 	const compileShader = vscode.commands.registerCommand('minty-support.compileShader', async (uri, selectedUris) => {
 		// 'uri' is the primary file right-clicked, 'selectedUris' contains all selected files
@@ -816,83 +783,27 @@ function activate(context) {
 	context.subscriptions.push(compileShader);
 
 	const findAssetUUID = vscode.commands.registerCommand('minty-support.findAssetUUID', async function () {
-		// Get all meta files in workspace and in $(MINTY_PATH)/Data/
-		const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
+		const {
+			uuidToFileMap,
+			mintyFiles,
+			workspaceRoot,
+			mintyDataPath
+		} = await getLookupContext();
 
-		let mintyMetaFiles = [];
-		const mintyPath = process.env.MINTY_PATH;
-		if (mintyPath) {
-			const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
-			try {
-				const mintyDataMetaFiles = await vscode.workspace.findFiles(
-					new vscode.RelativePattern(mintyDataUri, '**/*.meta')
-				);
-				mintyMetaFiles = mintyDataMetaFiles;
-			} catch (e) {
-				console.error('Error searching for meta files in MINTY_PATH/Data:', e);
-			}
-		}
-
-		const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
-
-		if (metaFiles.length === 0) {
-			vscode.window.showInformationMessage('No assets with .meta files found.');
+		if (mintyFiles.length === 0) {
+			vscode.window.showInformationMessage('No assets with UUIDs found.');
 			return;
-		}
-
-		// Build a map: UUID -> file path for prefab lookups
-		const uuidToFileMap = {};
-		for (const metaFileUri of metaFiles) {
-			try {
-				const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-				const match = content.match(META_UUID_REGEX);
-				if (match) {
-					const uuid = match[1];
-					const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
-					uuidToFileMap[uuid] = filePath;
-				}
-			} catch (e) {
-				console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
-			}
 		}
 
 		// Build a list of assets with their UUIDs for the quick pick
 		const assetItems = [];
-		for (const metaFileUri of metaFiles) {
-			try {
-				const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-				const match = content.match(META_UUID_REGEX);
-				if (match) {
-					const uuid = match[1];
-					const assetPath = metaFileUri.fsPath.replace(/\.meta$/, '');
-					
-					// Get relative path for display
-					const workspaceFolders = vscode.workspace.workspaceFolders || [];
-					let displayPath = assetPath;
-					
-					if (workspaceFolders.length > 0) {
-						const workspaceRoot = workspaceFolders[0].uri.fsPath;
-						if (assetPath.startsWith(workspaceRoot)) {
-							displayPath = path.relative(workspaceRoot, assetPath).replace(/\\/g, '/');
-						}
-					}
-					
-					// If it's from MINTY_PATH, show it relative to Data folder
-					if (mintyPath && assetPath.startsWith(path.join(mintyPath, 'Data'))) {
-						const dataDir = path.join(mintyPath, 'Data');
-						displayPath = `[Minty] ${path.relative(dataDir, assetPath).replace(/\\/g, '/')}`;
-					}
-
-					assetItems.push({
-						label: displayPath,
-						description: uuid,
-						uuid: uuid,
-						assetPath: assetPath
-					});
-				}
-			} catch (e) {
-				console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
-			}
+		for (const [uuid, assetPath] of Object.entries(uuidToFileMap)) {
+			assetItems.push({
+				label: getDisplayPath(assetPath, workspaceRoot, mintyDataPath),
+				description: uuid,
+				uuid: uuid,
+				assetPath: assetPath
+			});
 		}
 
 		// Check if current file is a minty file and extract local UUIDs and prefab references
@@ -910,7 +821,7 @@ function activate(context) {
 				const indentMatch = lineText.match(/^(\s*)/);
 				const indentation = indentMatch ? indentMatch[1].length : 0;
 
-				const uuidRegex = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+				const uuidRegex = /\b[a-fA-F0-9]{32}\b/g;
 				let match;
 				while ((match = uuidRegex.exec(lineText)) !== null) {
 					const uuid = match[0];
@@ -923,7 +834,7 @@ function activate(context) {
 						lineText[match.index + uuid.length] === ']';
 					
 					// Check if it's a prefab reference pattern: UUID [PrefabUUID]
-					const prefabPattern = new RegExp(`${uuid}\\s+\\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\\]`);
+					const prefabPattern = new RegExp(`${uuid}\\s+\\[([a-fA-F0-9]{32})\\]`);
 					const prefabMatch = lineText.match(prefabPattern);
 					if (prefabMatch) {
 						prefabUUIDs.add(prefabMatch[1]);
@@ -969,7 +880,7 @@ function activate(context) {
 
 						// Extract UUIDs from the prefab file
 						for (const prefabLine of prefabLines) {
-							const uuidRegex = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+							const uuidRegex = /\b[a-fA-F0-9]{32}\b/g;
 							let match;
 							while ((match = uuidRegex.exec(prefabLine)) !== null) {
 								const uuid = match[0];
@@ -1037,79 +948,27 @@ function activate(context) {
 	context.subscriptions.push(findAssetUUID);
 
 	const findAssetPath = vscode.commands.registerCommand('minty-support.findAssetPath', async function () {
-		// Get all meta files in workspace and in $(MINTY_PATH)/Data/
-		const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
+		const {
+			uuidToFileMap,
+			mintyFiles,
+			workspaceRoot,
+			mintyDataPath
+		} = await getLookupContext();
 
-		let mintyMetaFiles = [];
-		const mintyPath = process.env.MINTY_PATH;
-		if (mintyPath) {
-			const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
-			try {
-				const mintyDataMetaFiles = await vscode.workspace.findFiles(
-					new vscode.RelativePattern(mintyDataUri, '**/*.meta')
-				);
-				mintyMetaFiles = mintyDataMetaFiles;
-			} catch (e) {
-				console.error('Error searching for meta files in MINTY_PATH/Data:', e);
-			}
-		}
-
-		const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
-
-		if (metaFiles.length === 0) {
-			vscode.window.showInformationMessage('No assets with .meta files found.');
+		if (mintyFiles.length === 0) {
+			vscode.window.showInformationMessage('No assets with UUIDs found.');
 			return;
 		}
 
 		// Build a list of assets with their paths for the quick pick
 		const assetItems = [];
-		for (const metaFileUri of metaFiles) {
-			try {
-				const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-				const match = content.match(META_UUID_REGEX);
-				if (match) {
-					const uuid = match[1];
-					const assetPath = metaFileUri.fsPath.replace(/\.meta$/, '');
-					
-					// Get relative path for display and copying
-					const workspaceFolders = vscode.workspace.workspaceFolders || [];
-					let displayPath = assetPath;
-					let copyPath = assetPath;
-					
-					if (workspaceFolders.length > 0) {
-						const workspaceRoot = workspaceFolders[0].uri.fsPath;
-						if (assetPath.startsWith(workspaceRoot)) {
-							const relativePath = path.relative(workspaceRoot, assetPath).replace(/\\/g, '/');
-							displayPath = relativePath;
-							copyPath = relativePath;
-						}
-					}
-					
-					// If it's from MINTY_PATH, show it relative to Data folder
-					if (mintyPath && assetPath.startsWith(path.join(mintyPath, 'Data'))) {
-						const dataDir = path.join(mintyPath, 'Data');
-						const relativePath = path.relative(dataDir, assetPath).replace(/\\/g, '/');
-						displayPath = `[Minty] ${relativePath}`;
-						copyPath = relativePath;
-					}
-
-					// Remove leading "Game/" or "Project/" from copyPath if present
-					if (copyPath.startsWith('Game/')) {
-						copyPath = copyPath.substring(5); // Remove "Game/"
-					} else if (copyPath.startsWith('Project/')) {
-						copyPath = copyPath.substring(8); // Remove "Project/"
-					}
-
-					assetItems.push({
-						label: displayPath,
-						description: uuid,
-						uuid: uuid,
-						assetPath: copyPath
-					});
-				}
-			} catch (e) {
-				console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
-			}
+		for (const [uuid, assetPath] of Object.entries(uuidToFileMap)) {
+			assetItems.push({
+				label: getDisplayPath(assetPath, workspaceRoot, mintyDataPath),
+				description: uuid,
+				uuid: uuid,
+				assetPath: getCopyPath(assetPath, workspaceRoot, mintyDataPath)
+			});
 		}
 
 		if (assetItems.length === 0) {
@@ -1135,112 +994,37 @@ function activate(context) {
 	context.subscriptions.push(findAssetPath);
 
 	const provider = vscode.languages.registerDocumentLinkProvider('minty', {
-		async provideDocumentLinks(document, token) {
+		async provideDocumentLinks(document) {
 			const links = [];
+			const {
+				uuidToFileMap,
+				mintyFiles,
+				mintyDataPath,
+				baseDir
+			} = await getLookupContext();
 
-			// Get all meta files in workspace and in $(MINTY_PATH)/Data/
-			const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
-
-			let mintyMetaFiles = [];
-			const mintyPath = process.env.MINTY_PATH;
-			if (mintyPath) {
-				const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
-				try {
-					const mintyDataMetaFiles = await vscode.workspace.findFiles(
-						new vscode.RelativePattern(mintyDataUri, '**/*.meta')
-					);
-					mintyMetaFiles = mintyDataMetaFiles;
-				} catch (e) {
-					console.error('Error searching for meta files in MINTY_PATH/Data:', e);
-				}
-			}
-
-			const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
-
-			// Build a map: UUID -> file path
-			const uuidToFileMap = {};
-			for (const metaFileUri of metaFiles) {
-				try {
-					const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-					const match = content.match(META_UUID_REGEX);
-					if (match) {
-						const uuid = match[1];
-						const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
-						uuidToFileMap[uuid] = filePath;
-					}
-				} catch (e) {
-					console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
-				}
-			}
-
-			const workspaceFiles = await vscode.workspace.findFiles('**/*', '{**/*.meta,**/.*,**/.*/**}');
-			let mintyFiles = [];
-			if (mintyPath) {
-				const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
-				try {
-					const mintyDataFiles = await vscode.workspace.findFiles(
-						new vscode.RelativePattern(mintyDataUri, '**/*'),
-						'**/*.meta'
-					);
-					mintyFiles = mintyDataFiles;
-				} catch (e) {
-					console.error('Error searching for files in MINTY_PATH/Data:', e);
-				}
-			}
-
-			// console.log(`UUID map: ${JSON.stringify(uuidToFileMap, null, 2)}`);
+			const workspaceFiles = await vscode.workspace.findFiles('**/*', '{**/.*,**/.*/**}');
 
 			const fileMap = {};
-
-			// Find Game or Project directory to use as base
-			const workspaceFolders = vscode.workspace.workspaceFolders || [];
-			let workspaceRoot = workspaceFolders.length > 0 ? workspaceFolders[0].uri.fsPath : '';
-			let baseDir = workspaceRoot;
-			
-			// Look for Game or Project directory in the workspace
-			if (workspaceRoot) {
-				const gameDir = path.join(workspaceRoot, 'Game');
-				const projectDir = path.join(workspaceRoot, 'Project');
-				
-				try {
-					const gameStat = await vscode.workspace.fs.stat(vscode.Uri.file(gameDir));
-					if (gameStat.type === vscode.FileType.Directory) {
-						baseDir = gameDir;
-					}
-				} catch (e) {
-					// Game directory doesn't exist, try Project
-					try {
-						const projectStat = await vscode.workspace.fs.stat(vscode.Uri.file(projectDir));
-						if (projectStat.type === vscode.FileType.Directory) {
-							baseDir = projectDir;
-						}
-					} catch (e) {
-						// Neither exists, use workspace root
-					}
-				}
-			}
 
 			// Map workspace files: key = relative to base directory (with forward slashes), value = full path
 			for (const file of workspaceFiles) {
 				let relPath = baseDir && file.fsPath.startsWith(baseDir)
 					? path.relative(baseDir, file.fsPath)
 					: file.fsPath;
-				relPath = relPath.replace(/\\/g, '/'); // normalize to forward slashes
+				relPath = normalizePath(relPath);
 				fileMap[relPath] = file.fsPath;
 			}
 
 			// Map minty files: key = relative to Data dir (with forward slashes), value = full path
-			if (mintyPath) {
-				const dataDir = path.join(mintyPath, 'Data');
+			if (mintyDataPath) {
 				for (const file of mintyFiles) {
 					// Always calculate the relative path from the Data directory
-					let relPath = path.relative(dataDir, file.fsPath);
-					relPath = relPath.replace(/\\/g, '/'); // normalize to forward slashes
+					let relPath = path.relative(mintyDataPath, file.fsPath);
+					relPath = normalizePath(relPath);
 					fileMap[relPath] = file.fsPath;
 				}
 			}
-
-			// console.log(`File map: ${JSON.stringify(fileMap, null, 2)}`);
 
 			// First pass: collect all UUID occurrences in the document
 			const uuidOccurrences = {}; // uuid -> array of {lineNum, start, end, indentation}
@@ -1253,7 +1037,7 @@ function activate(context) {
 				const indentation = indentMatch ? indentMatch[1].length : 0;
 
 				let match;
-				const uuidRegex = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+				const uuidRegex = /\b[a-fA-F0-9]{32}\b/g;
 				while ((match = uuidRegex.exec(lineText)) !== null) {
 					const uuid = match[0];
 					const start = match.index;
@@ -1309,7 +1093,7 @@ function activate(context) {
 							// Only check lines with less indentation (ancestor lines)
 							if (searchIndentation < currentIndentation) {
 								// Pattern 1: something: UUID [PrefabUUID] (exact UUID match)
-								const prefabPattern1 = new RegExp(`:\\s*${uuid}\\s+\\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\\]`);
+								const prefabPattern1 = new RegExp(`:\\s*${uuid}\\s+\\[([a-fA-F0-9]{32})\\]`);
 								const prefabMatch1 = searchText.match(prefabPattern1);
 								
 								if (prefabMatch1) {
@@ -1318,7 +1102,7 @@ function activate(context) {
 								}
 								
 								// Pattern 2: [PrefabUUID] at end of line (handles "UUID [PrefabUUID]" format)
-								const prefabPattern2 = /\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]\s*$/;
+								const prefabPattern2 = /\[([a-fA-F0-9]{32})\]\s*$/;
 								const prefabMatch2 = searchText.match(prefabPattern2);
 								
 								if (prefabMatch2) {
@@ -1331,7 +1115,7 @@ function activate(context) {
 								}
 								
 								// Pattern 3: something: [PrefabUUID] (ancestor has prefab reference directly after colon)
-								const prefabPattern3 = /:\s*\[?([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]?$/;
+								const prefabPattern3 = /:\s*\[?([a-fA-F0-9]{32})\]?$/;
 								const prefabMatch3 = searchText.match(prefabPattern3);
 								
 								if (prefabMatch3) {
@@ -1370,7 +1154,7 @@ function activate(context) {
 									links.push(new vscode.DocumentLink(range, prefabFileUri));
 									foundPrefabLink = true;
 								}
-							} catch (e) {
+							} catch {
 								// Failed to read prefab file, just link to it
 								links.push(new vscode.DocumentLink(range, prefabFileUri));
 								foundPrefabLink = true;
@@ -1385,10 +1169,7 @@ function activate(context) {
 					// Check meta files first (prefer global references)
 					if (uuidToFileMap[uuid]) {
 						const foundUri = vscode.Uri.file(uuidToFileMap[uuid]);
-
-						// remove '.meta' from the file path
-						const baseFileUri = foundUri.with({ path: foundUri.path.replace(/\.meta$/, '') });
-						links.push(new vscode.DocumentLink(range, baseFileUri));
+						links.push(new vscode.DocumentLink(range, foundUri));
 					} else {
 						// Check if this UUID appears multiple times in the document (only if no global reference)
 						const occurrences = uuidOccurrences[uuid];
@@ -1401,7 +1182,6 @@ function activate(context) {
 
 							if (!isTargetOccurrence) {
 								// This is not the target occurrence, link to the lowest indented occurrence
-								const targetPosition = new vscode.Position(targetOccurrence.lineNum, targetOccurrence.start);
 								const targetUri = document.uri.with({ fragment: `L${targetOccurrence.lineNum + 1}` });
 								links.push(new vscode.DocumentLink(range, targetUri));
 							}
@@ -1445,7 +1225,7 @@ function activate(context) {
 	context.subscriptions.push(provider);
 
 	const hoverProvider = vscode.languages.registerHoverProvider('minty', {
-		async provideHover(document, position, token) {
+		async provideHover(document, position) {
 			const range = document.getWordRangeAtPosition(position, UUID_REGEX);
 			if (!range) {
 				return null;
@@ -1458,6 +1238,12 @@ function activate(context) {
 			if (isZeroUuid) {
 				return null;
 			}
+
+			const {
+				uuidToFileMap,
+				workspaceRoot,
+				mintyDataPath
+			} = await getLookupContext();
 
 			// Check if UUID is wrapped in brackets (might be referencing entity in a prefab)
 			const line = document.lineAt(position.line);
@@ -1484,7 +1270,7 @@ function activate(context) {
 					// Only check lines with less indentation (ancestor lines)
 					if (searchIndentation < currentIndentation) {
 						// Pattern 1: something: UUID [PrefabUUID] (exact UUID match)
-						const prefabPattern1 = new RegExp(`:\\s*${uuid}\\s+\\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\\]`);
+						const prefabPattern1 = new RegExp(`:\\s*${uuid}\\s+\\[([a-fA-F0-9]{32})\\]`);
 						const prefabMatch1 = searchText.match(prefabPattern1);
 						
 						if (prefabMatch1) {
@@ -1493,42 +1279,11 @@ function activate(context) {
 						}
 						
 						// Pattern 2: [PrefabUUID] at end of line (handles "UUID [PrefabUUID]" format)
-						const prefabPattern2 = /\[([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]\s*$/;
+						const prefabPattern2 = /\[([a-fA-F0-9]{32})\]\s*$/;
 						const prefabMatch2 = searchText.match(prefabPattern2);
 						
 						if (prefabMatch2) {
 							const potentialPrefabUuid = prefabMatch2[1];
-							
-							// First build the UUID map to check if it's a prefab
-							const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
-							let mintyMetaFiles = [];
-							const mintyPath = process.env.MINTY_PATH;
-							if (mintyPath) {
-								const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
-								try {
-									const mintyDataMetaFiles = await vscode.workspace.findFiles(
-										new vscode.RelativePattern(mintyDataUri, '**/*.meta')
-									);
-									mintyMetaFiles = mintyDataMetaFiles;
-								} catch (e) {
-									console.error('Error searching for meta files in MINTY_PATH/Data:', e);
-								}
-							}
-							const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
-							const uuidToFileMap = {};
-							for (const metaFileUri of metaFiles) {
-								try {
-									const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-									const match = content.match(META_UUID_REGEX);
-									if (match) {
-										const foundUuid = match[1];
-										const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
-										uuidToFileMap[foundUuid] = filePath;
-									}
-								} catch (e) {
-									console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
-								}
-							}
 							
 							// Check if this UUID is in our map (it's a prefab)
 							if (uuidToFileMap[potentialPrefabUuid]) {
@@ -1568,42 +1323,11 @@ function activate(context) {
 						}
 						
 						// Pattern 3: something: [PrefabUUID] (ancestor has prefab reference directly after colon)
-						const prefabPattern3 = /:\s*\[?([a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?)\]?$/;
+						const prefabPattern3 = /:\s*\[?([a-fA-F0-9]{32})\]?$/;
 						const prefabMatch3 = searchText.match(prefabPattern3);
 						
 						if (prefabMatch3) {
 							const potentialPrefabUuid = prefabMatch3[1];
-							
-							// First build the UUID map to check if it's a prefab
-							const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
-							let mintyMetaFiles = [];
-							const mintyPath = process.env.MINTY_PATH;
-							if (mintyPath) {
-								const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
-								try {
-									const mintyDataMetaFiles = await vscode.workspace.findFiles(
-										new vscode.RelativePattern(mintyDataUri, '**/*.meta')
-									);
-									mintyMetaFiles = mintyDataMetaFiles;
-								} catch (e) {
-									console.error('Error searching for meta files in MINTY_PATH/Data:', e);
-								}
-							}
-							const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
-							const uuidToFileMap = {};
-							for (const metaFileUri of metaFiles) {
-								try {
-									const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-									const match = content.match(META_UUID_REGEX);
-									if (match) {
-										const foundUuid = match[1];
-										const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
-										uuidToFileMap[foundUuid] = filePath;
-									}
-								} catch (e) {
-									console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
-								}
-							}
 							
 							// Check if this UUID is in our map (it's a prefab)
 							if (uuidToFileMap[potentialPrefabUuid]) {
@@ -1645,61 +1369,11 @@ function activate(context) {
 				}
 			}
 
-			// Get all meta files in workspace and in $(MINTY_PATH)/Data/ (check global first)
-			const workspaceMetaFiles = await vscode.workspace.findFiles('**/*.meta');
-
-			let mintyMetaFiles = [];
-			const mintyPath = process.env.MINTY_PATH;
-			if (mintyPath) {
-				const mintyDataUri = vscode.Uri.file(path.join(mintyPath, 'Data'));
-				try {
-					const mintyDataMetaFiles = await vscode.workspace.findFiles(
-						new vscode.RelativePattern(mintyDataUri, '**/*.meta')
-					);
-					mintyMetaFiles = mintyDataMetaFiles;
-				} catch (e) {
-					console.error('Error searching for meta files in MINTY_PATH/Data:', e);
-				}
-			}
-
-			const metaFiles = [...workspaceMetaFiles, ...mintyMetaFiles];
-
-			// Build a map: UUID -> file path
-			const uuidToFileMap = {};
-			for (const metaFileUri of metaFiles) {
-				try {
-					const content = await fs.readFile(metaFileUri.fsPath, 'utf8');
-					const match = content.match(META_UUID_REGEX);
-					if (match) {
-						const foundUuid = match[1];
-						const filePath = metaFileUri.fsPath.replace(/\.meta$/, '');
-						uuidToFileMap[foundUuid] = filePath;
-					}
-				} catch (e) {
-					console.error(`Error reading meta file ${metaFileUri.fsPath}:`, e);
-				}
-			}
-
 			// Look up the UUID in meta files (prefer global references)
 			if (uuidToFileMap[uuid]) {
 				const filePath = uuidToFileMap[uuid];
-				
-				// Get relative path for display
-				const workspaceFolders = vscode.workspace.workspaceFolders || [];
-				let displayPath = filePath;
-				
-				if (workspaceFolders.length > 0) {
-					const workspaceRoot = workspaceFolders[0].uri.fsPath;
-					if (filePath.startsWith(workspaceRoot)) {
-						displayPath = path.relative(workspaceRoot, filePath).replace(/\\/g, '/');
-					}
-				}
-				
-				// If it's from MINTY_PATH, show it relative to Data folder
-				if (mintyPath && filePath.startsWith(path.join(mintyPath, 'Data'))) {
-					const dataDir = path.join(mintyPath, 'Data');
-					displayPath = `[Minty] ${path.relative(dataDir, filePath).replace(/\\/g, '/')}`;
-				}
+
+				const displayPath = getDisplayPath(filePath, workspaceRoot, mintyDataPath);
 
 				const hoverMessage = new vscode.MarkdownString();
 				hoverMessage.appendCodeblock(uuid, 'text');
@@ -1714,7 +1388,7 @@ function activate(context) {
 				const line = document.lineAt(lineNum);
 				const lineText = line.text;
 
-				const uuidRegex = /\b[a-fA-F0-9]{16}(?:[a-fA-F0-9]{16})?\b/g;
+				const uuidRegex = /\b[a-fA-F0-9]{32}\b/g;
 				let match;
 				while ((match = uuidRegex.exec(lineText)) !== null) {
 					if (match[0] === uuid) {
@@ -1765,3 +1439,7 @@ module.exports = {
 	activate,
 	deactivate
 }
+
+
+
+

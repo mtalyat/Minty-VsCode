@@ -10,10 +10,9 @@ The official support extension for VsCode for the [Minty](https://github.com/mta
 - UUID navigation (ctrl+click a UUID to open its corresponding file).
 - UUID generation/insertion (ctrl+alt+u, ctrl+alt+i).
 - UUID lookup (ctrl+alt+u ctrl+alt+u) or asset path lookup (ctrl+alt+u ctrl+alt+y).
-- Incremental UUID insertion (ctrl+alt+u ctrl+alt+n).
-- Supports full (32 character) or short (16 character) UUIDs.
-- Easily create new Asset files using the templates from your Minty directory, by right clicking on a directory within the explorer.
-- Easily create meta files by right clicking a file within the explorer.
+- 32-character UUIDs only.
+- Easily create new Resource files using templates from your Minty directory, by right clicking a file or directory within the explorer.
+- Resource creation supports template placeholders: {UUID}, {TARGET_PATH}, and {TARGET_UUID}.
 - Easily compile shader modules by right clicking a .glsl, .vert or .frag file within the explorer.
 
 ## Requirements

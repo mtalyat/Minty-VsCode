@@ -2,7 +2,7 @@
   "name": "minty-support",
   "displayName": "Minty Support",
   "description": "Support for Minty game engine files.",
-  "version": "1.4.5",
+  "version": "1.5.0",
   "engines": {
     "vscode": "^1.101.0"
   },
@@ -36,8 +36,7 @@
           "minty"
         ],
         "extensions": [
-          ".minty",
-          ".meta"
+          ".minty"
         ],
         "configuration": "./language-configuration.json"
       }
@@ -67,20 +66,8 @@
         "title": "Minty: Generate UUID"
       },
       {
-        "command": "minty-support.generateShortUUID",
-        "title": "Minty: Generate Short UUID"
-      },
-      {
         "command": "minty-support.insertUUID",
         "title": "Minty: Insert UUID"
-      },
-      {
-        "command": "minty-support.insertNextUUID",
-        "title": "Minty: Insert Next UUID"
-      },
-      {
-        "command": "minty-support.insertShortUUID",
-        "title": "Minty: Insert Short UUID"
       },
       {
         "command": "minty-support.openMintyDocs",
@@ -92,7 +79,7 @@
       },
       {
         "command": "minty-support.createMintyFile",
-        "title": "Minty: Create Asset"
+        "title": "Minty: Create Resource"
       },
       {
         "command": "minty-support.openMintyDirectory",
@@ -105,10 +92,6 @@
       {
         "command": "minty-support.findAssetPath",
         "title": "Minty: Find Asset Path"
-      },
-      {
-        "command": "minty-support.createMetaFile",
-        "title": "Minty: Create Meta File"
       },
       {
         "command": "minty-support.compileShader",
@@ -127,16 +110,6 @@
         "when": "editorTextFocus"
       },
       {
-        "command": "minty-support.insertNextUUID",
-        "key": "ctrl+alt+u ctrl+alt+n",
-        "when": "editorTextFocus"
-      },
-      {
-        "command": "minty-support.insertShortUUID",
-        "key": "ctrl+alt+u ctrl+alt+o",
-        "when": "editorTextFocus"
-      },
-      {
         "command": "minty-support.findAssetPath",
         "key": "ctrl+alt+u ctrl+alt+y"
       }
@@ -145,13 +118,7 @@
       "explorer/context": [
         {
           "command": "minty-support.createMintyFile",
-          "group": "minty-support",
-          "when": "explorerResourceIsFolder"
-        },
-        {
-          "command": "minty-support.createMetaFile",
-          "group": "minty-support",
-          "when": "!explorerResourceIsFolder && (resourceExtname != .meta && resourceExtname != .frag && resourceExtname != .vert && resourceExtname != .glsl)"
+          "group": "minty-support"
         },
         {
           "command": "minty-support.compileShader",

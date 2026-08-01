@@ -1,5 +1,13 @@
 # Change Log
 
+## 1.5.0
+- BREAKING: Removed meta-file workflows and references entirely.
+- BREAKING: UUID lookups now scan .minty files and read only the first-line UUID.
+- BREAKING: Removed short UUID features; all UUID logic now uses 32-character UUIDs only.
+- BREAKING: Removed Insert Next UUID command and keybinding (ctrl+alt+u ctrl+alt+n).
+- BREAKING: Renamed Create Asset to Create Resource.
+- Create Resource now supports right-clicking a file as the target and replaces template placeholders: {UUID}, {TARGET_PATH}, {TARGET_UUID}.
+
 ## 1.4.5
 - Fix prefab decorations.
 - Fix color of local UUIDs.
